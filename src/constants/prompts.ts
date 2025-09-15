@@ -1,0 +1,132 @@
+import { CONTEXT_FILE_PATH } from '../args.js';
+import fs from 'node:fs/promises';
+import { USER_CATEGORY_NAME } from './files.js';
+
+const context = CONTEXT_FILE_PATH
+    ? await fs.readFile(CONTEXT_FILE_PATH, 'utf-8')
+    : '';
+
+const CONTEXT_PROMPT = context
+    ? `
+The user has provided the following common context to help you answer questions and find information:
+<CONTEXT>
+${context}
+</CONTEXT>
+    `.trim()
+    : '';
+
+const MAIN_SYSTEM_PROMPT = `
+You are an expert archivist whose job is to store and retrieve information about a codebase and the user from a vast archive of knowledge. You assist users in finding the information they need, answering questions, and providing insights based on the data available to you.
+Information is separated into categories and stored as markdown. These categories may be separated by feature, programming language, or other factors. Categories can be nested, e.g. languages/cpp, feature/networking or feature/networking/HTTP. Each category has its own file, and the content of these files is updated as new information is added.
+There is a main "summary" file which contains an overall listing of categories. The special ${USER_CATEGORY_NAME} category contains information about the user, such as their preferences, interests, and other relevant details.
+
+${CONTEXT_PROMPT}
+`.trim();
+
+export const getCategoryDescriptionPrompt = (categoryName: string, content: string) => `
+${MAIN_SYSTEM_PROMPT}
+Your current task is to produce a description for a category based on the content provided. The description should be concise and informative, summarizing the purpose and contents of the category. It will be included in the main summary file so that you can easily determine when to (and when not to) use this category for data retrieval/storage.
+This description can contain links to other categories, but should not contain any information that is not already in the category content. The description may also contain specific instructions on when it is important to use this category, or when it is not appropriate to use this category.
+You should return a <DESCRIPTION> tag containing the description, e.g. <DESCRIPTION>description in here</DESCRIPTION>.
+
+<CONTENT categoryName="${categoryName}">
+${content}
+</CONTENT>
+`.trim();
+
+export const getCategoriesFromQueryPrompt = (summary: string, information: string) => `${MAIN_SYSTEM_PROMPT}
+Your current task is to identify the categories that this information belongs to for lookup and storage.
+
+Here is the information:
+<INFORMATION>
+${information}
+</INFORMATION>
+
+Here is a summary of the existing categories and what they're for:
+<SUMMARY>
+${summary}
+</SUMMARY>
+
+You will provide 1 or more <CATEGORY> tags, each containing a category name, e.g. <CATEGORY>category name in here</CATEGORY>. You can create new categories if necessary to encompass the information, but try to group where it makes sense. Categories can contain slashes for subcategories, e.g. <CATEGORY>category/subcategory</CATEGORY>.
+`.trim();
+
+export const getInformationFromSingleCategoryPrompt = (query: string, content: string) => {
+    return `
+${MAIN_SYSTEM_PROMPT}
+Your current task is to answer a question/find some information based on the information available in the archive.
+ 
+<QUERY>
+${query}
+</QUERY>
+
+<ARCHIVE>
+${content}
+</ARCHIVE>
+
+You will return a <RESPONSE> tag containing the answer to the question, e.g. <RESPONSE>answer in here</RESPONSE>. It is ok if you only have a partial answer to the question - we will look at other categories too.
+If this category doesn't answer anything, return a <SKIP> tag instead of a <RESPONSE> tag, e.g. <SKIP>information not found</SKIP>.
+`.trim();
+};
+
+export const getSummarizeInformationFromManyCategoriesPrompt = (query: string, categories: Record<string /*categoryName*/, string /*content*/>) => `
+${MAIN_SYSTEM_PROMPT}
+Your current task is to answer a question/find some information based on the information available in the archive.
+We have already retrieved partial answers from the categories that are most relevant to the question, and now we need to summarize the information from these categories.
+
+<QUERY>
+${query}
+</QUERY>
+
+<ARCHIVE_ENTRIES>
+${Object.entries(categories).map(([categoryName, content]) => `
+<ARCHIVE_ENTRY categoryName="${categoryName}">
+${content}
+</ARCHIVE_ENTRY>
+`).join('\n')}
+</ARCHIVE_ENTRIES>
+
+You should return an <ANSWER> tag containing the final answer to the question, e.g. <ANSWER>final answer in here</ANSWER>. It is OK if you only have a partial answer, just answer the parts that you have information about. Don't make anything up.
+`.trim();
+
+interface IGetUpdateInSingleCategoryPromptOptions {
+    categoryName: string;
+    previousCategoryContent?: string;
+    information: string;
+}
+
+export const getUpdateInSingleCategoryPrompt = ({
+                                                    categoryName,
+                                                    previousCategoryContent,
+                                                    information
+                                                }: IGetUpdateInSingleCategoryPromptOptions) => `${MAIN_SYSTEM_PROMPT}
+Your current task is to update a single category with new information.
+
+<INFORMATION>
+${information}
+</INFORMATION>
+
+${previousCategoryContent ? `<PREVIOUS_CATEGORY_CONTENT>${previousCategoryContent}</PREVIOUS_CATEGORY_CONTENT>` : 'This is a new category with no existing content. You are creating the entire thing from scratch.'}
+
+If the information is not relevant to this category, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
+Otherwise, return a <CATEGORY_CONTENT> tag containing the new category content, e.g. <CATEGORY_CONTENT>new category content in here</CATEGORY_CONTENT>, and a <DIFF_SUMMARY> tag containing a summary of the changes made, e.g. <DIFF_SUMMARY>summary of changes in here</DIFF_SUMMARY>
+`.trim();
+
+export const getUpdateSummaryPrompt = (previousSummary: string, information: Record<string /*categoryName*/, string /*changeInfo*/>) => `${MAIN_SYSTEM_PROMPT}
+Your current task is to update the main summary file based on new information. 
+Return an UPDATED_SUMMARY element with file contents inside, e.g. <UPDATED_SUMMARY>updated file contents in here</UPDATED_SUMMARY>
+
+<PREVIOUS_SUMMARY>
+${previousSummary}
+</PREVIOUS_SUMMARY>
+
+<UPDATES>
+${Object.entries(information).map(([categoryName, changeInfo]) => `
+<UPDATE category="${categoryName}">
+${changeInfo}
+</UPDATE>
+`)}
+</UPDATES>
+`.trim();
+
+// const SUMMARY_CONSISTENCY_HEADER = `${MAIN_SYSTEM_PROMPT}
+// Your current task is to ensure that the main summary file is consistent with the information in the categories`;
