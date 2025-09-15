@@ -1,13 +1,14 @@
 import fsSync from 'fs';
 import { SUMMARY_FILE_PATH } from './args.js';
 import { readAllMemory } from './memory.js';
-import { getCategoryDescriptionPrompt } from './constants/prompts.js';
+import { getCategoryDescriptionPrompt, getUpdateSummaryPrompt } from './constants/prompts.js';
 import { logInfo, retrieveSampledMessage } from './util/mcp.js';
 import { USER_CATEGORY_NAME } from './constants/files.js';
+import fs from 'node:fs/promises';
 
 const DESCRIPTION_REGEX = /<DESCRIPTION>(?<description>[\s\S]*?)<\/DESCRIPTION>/;
 
-const summarizeCategory = async (categoryName: string, content: string): Promise<string> => {
+export const summarizeCategory = async (categoryName: string, content: string): Promise<string> => {
     const prompt = getCategoryDescriptionPrompt(categoryName, content);
 
     const response = await retrieveSampledMessage({
@@ -54,6 +55,23 @@ export const ensureSummary = async () => {
     // todo: ensure consistency with previous summary, files could be edited at any time from under us
 };
 
-export const updateSummary = async (summary: string, newInformation: string) => {
+const UPDATED_SUMMARY_REGEX = /<UPDATED_SUMMARY>(?<updatedSummary>[\s\S]*?)<\/UPDATED_SUMMARY>/;
 
+export const updateSummary = async (summary: string, updatedCategoryDescriptions: Record<string /*categoryName*/, string /*summary*/>) => {
+    if (Object.keys(updatedCategoryDescriptions).length === 0) {
+        return;
+    }
+
+    const prompt = getUpdateSummaryPrompt(summary, updatedCategoryDescriptions);
+    const response = await retrieveSampledMessage({
+        messages: [prompt],
+        maxTokens: 50_000
+    });
+
+    const updatedSummary = response.match(UPDATED_SUMMARY_REGEX)?.groups?.updatedSummary.trim();
+    if (!updatedSummary) {
+        throw new Error('Failed to update summary: no updated summary found in response.');
+    }
+
+    await fs.writeFile(SUMMARY_FILE_PATH, updatedSummary, 'utf-8');
 };

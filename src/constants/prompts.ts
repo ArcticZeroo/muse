@@ -23,10 +23,13 @@ There is a main "summary" file which contains an overall listing of categories. 
 ${CONTEXT_PROMPT}
 `.trim();
 
+const SUMMARY_DESCRIPTION_EXPLANATION = `The description should be concise and informative, summarizing the purpose and contents of the category. It will be included in the main summary file so that you can easily determine when to (and when not to) use this category for data retrieval/storage. This description can contain links to other categories, but should not contain any information that is not already in the category content. The description may also contain specific instructions on when it is important to use this category, or when it is not appropriate to use this category.`;
+
 export const getCategoryDescriptionPrompt = (categoryName: string, content: string) => `
 ${MAIN_SYSTEM_PROMPT}
-Your current task is to produce a description for a category based on the content provided. The description should be concise and informative, summarizing the purpose and contents of the category. It will be included in the main summary file so that you can easily determine when to (and when not to) use this category for data retrieval/storage.
-This description can contain links to other categories, but should not contain any information that is not already in the category content. The description may also contain specific instructions on when it is important to use this category, or when it is not appropriate to use this category.
+Your current task is to produce a description for a category based on the content provided.
+${SUMMARY_DESCRIPTION_EXPLANATION}
+
 You should return a <DESCRIPTION> tag containing the description, e.g. <DESCRIPTION>description in here</DESCRIPTION>.
 
 <CONTENT categoryName="${categoryName}">
@@ -34,8 +37,8 @@ ${content}
 </CONTENT>
 `.trim();
 
-export const getCategoriesFromQueryPrompt = (summary: string, information: string) => `${MAIN_SYSTEM_PROMPT}
-Your current task is to identify the categories that this information belongs to for lookup and storage.
+export const getCategoriesFromQueryPrompt = (summary: string, information: string, isIngestion: boolean) => `${MAIN_SYSTEM_PROMPT}
+Your current task is to identify the categories that this information belongs to for lookup and storage. 
 
 Here is the information:
 <INFORMATION>
@@ -47,7 +50,7 @@ Here is a summary of the existing categories and what they're for:
 ${summary}
 </SUMMARY>
 
-You will provide 1 or more <CATEGORY> tags, each containing a category name, e.g. <CATEGORY>category name in here</CATEGORY>. You can create new categories if necessary to encompass the information, but try to group where it makes sense. Categories can contain slashes for subcategories, e.g. <CATEGORY>category/subcategory</CATEGORY>.
+${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a category name, e.g. <CATEGORY>category name in here</CATEGORY>. ${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group where it makes sense.' : 'You may only specify categories that already exist.'}
 `.trim();
 
 export const getInformationFromSingleCategoryPrompt = (query: string, content: string) => {
@@ -112,20 +115,21 @@ Otherwise, return a <CATEGORY_CONTENT> tag containing the new category content, 
 `.trim();
 
 export const getUpdateSummaryPrompt = (previousSummary: string, information: Record<string /*categoryName*/, string /*changeInfo*/>) => `${MAIN_SYSTEM_PROMPT}
-Your current task is to update the main summary file based on new information. 
+Your task is to update the summary based on new information. Some category/categories have updated, and their new descriptions will be given. You can merge descriptions or replace entirely as you choose.
+${SUMMARY_DESCRIPTION_EXPLANATION}
 Return an UPDATED_SUMMARY element with file contents inside, e.g. <UPDATED_SUMMARY>updated file contents in here</UPDATED_SUMMARY>
 
 <PREVIOUS_SUMMARY>
 ${previousSummary}
 </PREVIOUS_SUMMARY>
 
-<UPDATES>
+<CATEGORY_UPDATES>
 ${Object.entries(information).map(([categoryName, changeInfo]) => `
-<UPDATE category="${categoryName}">
+<CATEGORY_UPDATE category="${categoryName}">
 ${changeInfo}
-</UPDATE>
+</CATEGORY_UPDATE>
 `)}
-</UPDATES>
+</CATEGORY_UPDATES>
 `.trim();
 
 // const SUMMARY_CONSISTENCY_HEADER = `${MAIN_SYSTEM_PROMPT}
