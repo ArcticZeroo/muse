@@ -1,6 +1,11 @@
 import { CONTEXT_FILE_PATH } from '../args.js';
 import fs from 'node:fs/promises';
 import { USER_CATEGORY_NAME } from './files.js';
+import { ifTruthy } from '../util/string.js';
+
+const describeSummary = (summary: string) => summary.trim()
+	? summary
+	: 'No categories exist yet.';
 
 const context = CONTEXT_FILE_PATH
     ? await fs.readFile(CONTEXT_FILE_PATH, 'utf-8')
@@ -47,7 +52,7 @@ ${information}
 
 Here is a summary of the existing categories and what they're for:
 <SUMMARY>
-${summary}
+${describeSummary(summary)}
 </SUMMARY>
 
 ${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a category name, e.g. <CATEGORY>category name in here</CATEGORY>. 
@@ -107,14 +112,18 @@ export const getUpdateInSingleCategoryPrompt = ({
                                                 }: IGetUpdateInSingleCategoryPromptOptions) => `${MAIN_SYSTEM_PROMPT}
 Your current task is to update a single category with new information. You have to decide which information (if any) is relevant to this category, and which information to discard. If there is relevant information, you can merge the new information with the existing content, or replace it entirely as you choose.
 
-This category is called "${categoryName}". Here is the summary of all other categories:
+This category is called "${categoryName}". 
 
+${ifTruthy(summary, `
+Here is the summary of all categories in memory:
 <SUMMARY>
 ${summary}
 </SUMMARY>
 
-Here is the information that you have to update the category with:
+Use this summary to help decide whether the information is relevant to this category or not. We want to avoid cluttering categories with information that is not relevant to them - categories should stay somewhat focused, and we don't want duplicate information across categories.
+`)}
 
+Here is the information that you are given to update the category with:
 <INFORMATION>
 ${information}
 </INFORMATION>
@@ -129,9 +138,10 @@ export const getUpdateSummaryPrompt = (previousSummary: string, information: Rec
 Your task is to update the summary based on new information. Some category/categories have updated, and their new descriptions will be given. You can merge descriptions or replace entirely as you choose.
 ${SUMMARY_DESCRIPTION_EXPLANATION}
 Return an UPDATED_SUMMARY element with file contents inside, e.g. <UPDATED_SUMMARY>updated file contents in here</UPDATED_SUMMARY>
+The summary should be in Markdown format, with each category in its own h3/### section whose title is the full category name.
 
 <PREVIOUS_SUMMARY>
-${previousSummary}
+${describeSummary(previousSummary)}
 </PREVIOUS_SUMMARY>
 
 <CATEGORY_UPDATES>

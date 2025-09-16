@@ -143,6 +143,10 @@ const NO_MEMORY_RESPONSE = 'No relevant memory found for the query. Go search th
 export const queryMemory = async (query: string): Promise<string> => {
     const summary = await getSummary();
 
+	if (!summary.trim()) {
+		return NO_MEMORY_RESPONSE;
+	}
+
     const categories = await getCategoriesForQuery({
         query,
         summary,
