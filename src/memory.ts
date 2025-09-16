@@ -7,7 +7,7 @@ import {
     getSummarizeInformationFromManyCategoriesPrompt, getUpdateInSingleCategoryPrompt
 } from './constants/prompts.js';
 import { retrieveSampledMessage } from './util/mcp.js';
-import { summarizeCategory, updateSummary } from './summary.js';
+import { getSummary, summarizeCategory, updateSummary } from './summary.js';
 
 export const readAllMemory = async (): Promise<Record<string /*categoryName*/, string /*content*/>> => {
     const memory: Record<string, string> = {};
@@ -17,7 +17,7 @@ export const readAllMemory = async (): Promise<Record<string /*categoryName*/, s
 
         for (const node of files) {
             if (node.isDirectory()) {
-                await readNode(node.name, [...parents, node.name]);
+                await readNode(path.join(nodePath, node.name), [...parents, node.name]);
                 continue;
             }
 
@@ -53,12 +53,6 @@ const getCategoryParts = (categoryName: string): string[] => {
         : categoryName.split('/');
 }
 
-const ensureCategoryParentExists = async (categoryName: string): Promise<void> => {
-    const parts = getCategoryParts(categoryName);
-    parts.pop();
-    await fs.mkdir(path.join(MEMORY_DIRECTORY, ...parts), { recursive: true });
-}
-
 const getCategoryFilePath = (categoryName: string): string => {
     const categoryParts = getCategoryParts(categoryName);
     const fileBaseName = path.join(MEMORY_DIRECTORY, ...categoryParts);
@@ -71,9 +65,16 @@ const readCategory = async (categoryName: string): Promise<string> => {
 
 const CATEGORIES_REGEX = /<CATEGORY>(?<category>[\s\S]*?)<\/CATEGORY>/g;
 
-const getCategoriesForQuery = async (query: string, isIngestion: boolean): Promise<Array<string>> => {
-    const summaryFile = await fs.readFile(SUMMARY_FILE_PATH, 'utf-8');
-    const prompt = getCategoriesFromQueryPrompt(summaryFile, query, isIngestion);
+const CATEGORY_NAME_REGEX = /^([\w_-]+\/)*[\w_-]+$/;
+
+interface IGetCategoriesForQueryOptions {
+    summary: string;
+    query: string;
+    isIngestion: boolean;
+}
+
+const getCategoriesForQuery = async ({ summary, query, isIngestion }: IGetCategoriesForQueryOptions): Promise<Array<string>> => {
+    const prompt = getCategoriesFromQueryPrompt(summary, query, isIngestion);
 
     const response = await retrieveSampledMessage({
         messages: [prompt],
@@ -82,11 +83,19 @@ const getCategoriesForQuery = async (query: string, isIngestion: boolean): Promi
 
     const matches = response.matchAll(CATEGORIES_REGEX);
     const categories: Array<string> = [];
+
     for (const match of matches) {
-        if (match.groups?.category) {
-            categories.push(match.groups.category.trim());
+        const category = match.groups?.category?.trim();
+        if (category) {
+            // todo: ask the AI again?
+            if (!CATEGORY_NAME_REGEX.test(category)) {
+                throw new Error(`AI generated an invalid category name: ${category}`);
+            }
+
+            categories.push(category);
         }
     }
+
     return categories;
 }
 
@@ -132,7 +141,14 @@ const summarizeCategories = async (query: string, responses: Record<string /*cat
 const NO_MEMORY_RESPONSE = 'No relevant memory found for the query. Go search the codebase and once you\'re done, ingest your findings into memory for next time.';
 
 export const queryMemory = async (query: string): Promise<string> => {
-    const categories = await getCategoriesForQuery(query, false /*isIngestion*/);
+    const summary = await getSummary();
+
+    const categories = await getCategoriesForQuery({
+        query,
+        summary,
+        isIngestion: false
+    });
+
     if (categories.length === 0) {
         return NO_MEMORY_RESPONSE;
     }
@@ -161,11 +177,18 @@ export const queryMemory = async (query: string): Promise<string> => {
 
 const CATEGORY_CONTENT_REGEX = /<CATEGORY_CONTENT>(?<content>[\s\S]*?)<\/CATEGORY_CONTENT>/;
 
-const updateCategory = async (categoryName: string, information: string): Promise<string /*summary*/ | undefined> => {
+interface IUpdateCategoryOptions {
+    summary: string;
+    categoryName: string;
+    information: string;
+}
+
+const updateCategory = async ({ summary, categoryName, information }: IUpdateCategoryOptions): Promise<string /*summary*/ | undefined> => {
     const filePath = getCategoryFilePath(categoryName);
     const previousCategoryContent = await fs.readFile(filePath, 'utf-8').catch(() => '');
 
     const prompt = getUpdateInSingleCategoryPrompt({
+        summary,
         categoryName,
         previousCategoryContent,
         information
@@ -187,7 +210,9 @@ const updateCategory = async (categoryName: string, information: string): Promis
 
     const newCategoryContent = match.trim();
     const summarizePromise = summarizeCategory(categoryName, newCategoryContent);
-    await ensureCategoryParentExists(newCategoryContent);
+
+    await fs.mkdir(path.dirname(filePath), {recursive: true});
+
     const writeFilePromise = fs.writeFile(filePath, newCategoryContent, 'utf-8');
 
     await Promise.all([summarizePromise, writeFilePromise]);
@@ -196,7 +221,12 @@ const updateCategory = async (categoryName: string, information: string): Promis
 }
 
 export const ingestMemory = async (information: string): Promise<void> => {
-    const categories = await getCategoriesForQuery(information, true /*isIngestion*/);
+    const summary = await getSummary();
+    const categories = await getCategoriesForQuery({
+        summary,
+        query: information,
+        isIngestion: true
+    });
 
     if (categories.length === 0) {
         return;
@@ -204,7 +234,11 @@ export const ingestMemory = async (information: string): Promise<void> => {
 
     const updatedDescriptions: Record<string /*categoryName*/, string /*summary*/> = {};
 
-    await Promise.all(categories.map(async (category) => updateCategory(category, information).then(summary => {
+    await Promise.all(categories.map(async (category) => updateCategory({
+        categoryName: category,
+        information,
+        summary
+    }).then(summary => {
         if (summary) {
             updatedDescriptions[category] = summary;
         }

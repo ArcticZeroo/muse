@@ -8,6 +8,10 @@ import fs from 'node:fs/promises';
 
 const DESCRIPTION_REGEX = /<DESCRIPTION>(?<description>[\s\S]*?)<\/DESCRIPTION>/;
 
+export const getSummary = async (): Promise<string> => {
+    return fs.readFile(SUMMARY_FILE_PATH, 'utf8');
+}
+
 export const summarizeCategory = async (categoryName: string, content: string): Promise<string> => {
     const prompt = getCategoryDescriptionPrompt(categoryName, content);
 

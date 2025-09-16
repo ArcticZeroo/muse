@@ -50,7 +50,8 @@ Here is a summary of the existing categories and what they're for:
 ${summary}
 </SUMMARY>
 
-${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a category name, e.g. <CATEGORY>category name in here</CATEGORY>. ${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group where it makes sense.' : 'You may only specify categories that already exist.'}
+${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a category name, e.g. <CATEGORY>category name in here</CATEGORY>. 
+${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group where it makes sense. New categories must match /[\\w_-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
 `.trim();
 
 export const getInformationFromSingleCategoryPrompt = (query: string, content: string) => {
@@ -94,21 +95,31 @@ You should return an <ANSWER> tag containing the final answer to the question, e
 interface IGetUpdateInSingleCategoryPromptOptions {
     categoryName: string;
     previousCategoryContent?: string;
+    summary: string;
     information: string;
 }
 
 export const getUpdateInSingleCategoryPrompt = ({
                                                     categoryName,
                                                     previousCategoryContent,
+                                                    summary,
                                                     information
                                                 }: IGetUpdateInSingleCategoryPromptOptions) => `${MAIN_SYSTEM_PROMPT}
-Your current task is to update a single category with new information.
+Your current task is to update a single category with new information. You have to decide which information (if any) is relevant to this category, and which information to discard. If there is relevant information, you can merge the new information with the existing content, or replace it entirely as you choose.
+
+This category is called "${categoryName}". Here is the summary of all other categories:
+
+<SUMMARY>
+${summary}
+</SUMMARY>
+
+Here is the information that you have to update the category with:
 
 <INFORMATION>
 ${information}
 </INFORMATION>
 
-${previousCategoryContent ? `<PREVIOUS_CATEGORY_CONTENT>${previousCategoryContent}</PREVIOUS_CATEGORY_CONTENT>` : 'This is a new category with no existing content. You are creating the entire thing from scratch.'}
+${previousCategoryContent ? `Here is the previous version of this category's content: <PREVIOUS_CATEGORY_CONTENT>${previousCategoryContent}</PREVIOUS_CATEGORY_CONTENT>` : 'This is a new category with no existing content. You are creating the entire thing from scratch.'}
 
 If the information is not relevant to this category, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
 Otherwise, return a <CATEGORY_CONTENT> tag containing the new category content, e.g. <CATEGORY_CONTENT>new category content in here</CATEGORY_CONTENT>, and a <DIFF_SUMMARY> tag containing a summary of the changes made, e.g. <DIFF_SUMMARY>summary of changes in here</DIFF_SUMMARY>
