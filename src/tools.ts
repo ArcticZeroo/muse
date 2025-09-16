@@ -1,7 +1,9 @@
 import { MCP_SERVER } from './mcp-server.js';
 import { z } from 'zod';
-import { ingestMemory, queryMemory } from './memory.js';
+import { CATEGORY_NAME_REGEX, findAllMemoryNodes, getCategoryFilePath, ingestMemory, queryMemory } from './memory.js';
 import { createToolResults } from './util/mcp.js';
+import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
 
 MCP_SERVER.registerTool(
     'query',
@@ -50,4 +52,36 @@ You can add pretty much whatever you want. You should probably avoid adding very
         await ingestMemory(content);
         return createToolResults('Ingested content into memory successfully.');
     }
-)
+);
+
+MCP_SERVER.registerTool(
+	'list',
+	{
+		description: 'List all memory categories. You can then use the `get` tool to get the contents of a specific category. You should generally use query instead of list/get unless you know ahead of time which category you want.',
+	},
+	async () => {
+		const results: string[] = [];
+		for await (const { categoryName } of findAllMemoryNodes()) {
+			results.push(categoryName);
+		}
+		return createToolResults(...results);
+	}
+);
+
+MCP_SERVER.registerTool(
+	'get',
+	{
+		description: 'Get the contents of a specific memory category. You should generally use query instead of list/get unless you know ahead of time which category you want.',
+		inputSchema: {
+			category: z.string().nonempty().regex(CATEGORY_NAME_REGEX).describe('The category to get the contents of. You can find available categories using the `list` tool.')
+		}
+	},
+	async ({ category }) => {
+		const filepath = getCategoryFilePath(category);
+		if (!fsSync.existsSync(filepath)) {
+			return createToolResults(`No memory found for category "${category}". You can use the "list" tool to see available categories.`);
+		}
+
+		return createToolResults(await fs.readFile(filepath, 'utf-8'));
+	}
+);

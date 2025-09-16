@@ -3,46 +3,58 @@ import { MEMORY_DIRECTORY, SUMMARY_FILE_PATH } from './args.js';
 import { SUMMARY_FILE_NAME, USER_CATEGORY_NAME, USER_FILE_NAME } from './constants/files.js';
 import path from 'node:path';
 import {
-    getCategoriesFromQueryPrompt, getInformationFromSingleCategoryPrompt,
-    getSummarizeInformationFromManyCategoriesPrompt, getUpdateInSingleCategoryPrompt
+	getCategoriesFromQueryPrompt,
+	getInformationFromSingleCategoryPrompt,
+	getSummarizeInformationFromManyCategoriesPrompt,
+	getUpdateInSingleCategoryPrompt
 } from './constants/prompts.js';
 import { retrieveSampledMessage } from './util/mcp.js';
 import { getSummary, summarizeCategory, updateSummary } from './summary.js';
 
+interface IMemoryNode {
+	categoryName: string;
+	filePath: string;
+}
+
+export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
+	async function* readNode(nodePath: string, parents: string[] = []): AsyncGenerator<IMemoryNode> {
+		const files = await fs.readdir(nodePath, { withFileTypes: true });
+
+		for (const node of files) {
+			if (node.isDirectory()) {
+				yield* readNode(path.join(nodePath, node.name), [...parents, node.name]);
+				continue;
+			}
+
+			if (!node.isFile()) {
+				continue;
+			}
+
+			if (!node.name.endsWith('.md')) {
+				continue;
+			}
+
+			if (node.name === SUMMARY_FILE_NAME) {
+				continue;
+			}
+
+			const filePath = path.join(nodePath, node.name);
+			const baseName = path.basename(node.name, '.md');
+			const categoryName = `${parents.join('/')}/${baseName}`;
+
+			yield { categoryName, filePath };
+		}
+	}
+
+	yield* readNode(MEMORY_DIRECTORY, []);
+}
+
 export const readAllMemory = async (): Promise<Record<string /*categoryName*/, string /*content*/>> => {
     const memory: Record<string, string> = {};
 
-    const readNode = async (nodePath: string, parents: string[] = []): Promise<void> => {
-        const files = await fs.readdir(nodePath, { withFileTypes: true });
-
-        for (const node of files) {
-            if (node.isDirectory()) {
-                await readNode(path.join(nodePath, node.name), [...parents, node.name]);
-                continue;
-            }
-
-            if (!node.isFile()) {
-                continue;
-            }
-
-            if (!node.name.endsWith('.md')) {
-                continue;
-            }
-
-            if (node.name === SUMMARY_FILE_NAME) {
-                continue;
-            }
-
-            const content = await fs.readFile(path.join(nodePath, node.name), 'utf-8');
-
-            const baseName = path.basename(node.name, '.md');
-            const categoryName = `${parents.join('/')}/${baseName}`;
-
-            memory[categoryName] = content;
-        }
-    }
-
-    await readNode(MEMORY_DIRECTORY, []);
+	for await (const { categoryName, filePath } of findAllMemoryNodes()) {
+		memory[categoryName] = await fs.readFile(filePath, 'utf-8');
+	}
 
     return memory;
 }
@@ -53,7 +65,7 @@ const getCategoryParts = (categoryName: string): string[] => {
         : categoryName.split('/');
 }
 
-const getCategoryFilePath = (categoryName: string): string => {
+export const getCategoryFilePath = (categoryName: string): string => {
     const categoryParts = getCategoryParts(categoryName);
     const fileBaseName = path.join(MEMORY_DIRECTORY, ...categoryParts);
     return `${fileBaseName}.md`;
@@ -65,7 +77,7 @@ const readCategory = async (categoryName: string): Promise<string> => {
 
 const CATEGORIES_REGEX = /<CATEGORY>(?<category>[\s\S]*?)<\/CATEGORY>/g;
 
-const CATEGORY_NAME_REGEX = /^([\w_-]+\/)*[\w_-]+$/;
+export const CATEGORY_NAME_REGEX = /^([\w_-]+\/)*[\w_-]+$/;
 
 interface IGetCategoriesForQueryOptions {
     summary: string;
