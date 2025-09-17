@@ -57,3 +57,22 @@ export class MultiLock {
 		});
 	}
 }
+
+export class LockedResource<T> {
+	readonly #lock = new Lock();
+	#resource: T;
+
+	constructor(initialResource: T) {
+		this.#resource = initialResource;
+	}
+
+	async use<R = void>(work: (resource: T) => MaybePromise<R>): Promise<R> {
+		return this.#lock.acquire(() => work(this.#resource));
+	}
+
+	async update(work: (resource: T) => MaybePromise<T>): Promise<void> {
+		await this.#lock.acquire(async () => {
+			this.#resource = await work(this.#resource);
+		});
+	}
+}

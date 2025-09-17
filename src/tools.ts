@@ -1,9 +1,11 @@
 import { MCP_SERVER } from './mcp-server.js';
 import { z } from 'zod';
-import { CATEGORY_NAME_REGEX, findAllMemoryNodes, getCategoryFilePath, ingestMemory, queryMemory } from './memory.js';
+import { CATEGORY_NAME_REGEX, ingestMemory, queryMemory } from './memory.js';
 import { createToolResults } from './util/mcp.js';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
+import { getCategoryFilePath } from './util/category.js';
+import { findAllMemoryNodes } from './util/filesystem.js';
 
 MCP_SERVER.registerTool(
     'query',

@@ -1,10 +1,10 @@
 import fsSync from 'fs';
 import { SUMMARY_FILE_PATH } from './args.js';
-import { readAllMemory } from './memory.js';
 import { getCategoryDescriptionPrompt, getUpdateSummaryPrompt } from './constants/prompts.js';
 import { logInfo, retrieveSampledMessage } from './util/mcp.js';
 import { USER_CATEGORY_NAME } from './constants/files.js';
 import fs from 'node:fs/promises';
+import { readAllMemory } from './util/filesystem.js';
 
 const DESCRIPTION_REGEX = /<DESCRIPTION>(?<description>[\s\S]*?)<\/DESCRIPTION>/;
 

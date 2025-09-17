@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
-import { MEMORY_DIRECTORY, SUMMARY_FILE_PATH } from './args.js';
-import { SUMMARY_FILE_NAME, USER_CATEGORY_NAME, USER_FILE_NAME } from './constants/files.js';
+import { SUMMARY_FILE_PATH } from './args.js';
 import path from 'node:path';
 import {
 	getCategoriesFromQueryPrompt,
@@ -10,66 +9,7 @@ import {
 } from './constants/prompts.js';
 import { retrieveSampledMessage } from './util/mcp.js';
 import { getSummary, summarizeCategory, updateSummary } from './summary.js';
-
-interface IMemoryNode {
-	categoryName: string;
-	filePath: string;
-}
-
-export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
-	async function* readNode(nodePath: string, parents: string[] = []): AsyncGenerator<IMemoryNode> {
-		const files = await fs.readdir(nodePath, { withFileTypes: true });
-
-		for (const node of files) {
-			if (node.isDirectory()) {
-				yield* readNode(path.join(nodePath, node.name), [...parents, node.name]);
-				continue;
-			}
-
-			if (!node.isFile()) {
-				continue;
-			}
-
-			if (!node.name.endsWith('.md')) {
-				continue;
-			}
-
-			if (node.name === SUMMARY_FILE_NAME) {
-				continue;
-			}
-
-			const filePath = path.join(nodePath, node.name);
-			const baseName = path.basename(node.name, '.md');
-			const categoryName = `${parents.join('/')}/${baseName}`;
-
-			yield { categoryName, filePath };
-		}
-	}
-
-	yield* readNode(MEMORY_DIRECTORY, []);
-}
-
-export const readAllMemory = async (): Promise<Record<string /*categoryName*/, string /*content*/>> => {
-	const memory: Record<string, string> = {};
-
-	for await (const { categoryName, filePath } of findAllMemoryNodes()) {
-		memory[categoryName] = await fs.readFile(filePath, 'utf-8');
-	}
-
-	return memory;
-}
-
-const getCategoryParts = (categoryName: string): string[] => {
-	return categoryName === USER_CATEGORY_NAME
-		? [USER_FILE_NAME]
-		: categoryName.split('/');
-}
-
-export const getCategoryFilePath = (categoryName: string): string => {
-	const categoryParts = getCategoryParts(categoryName);
-	const fileBaseName = path.join(MEMORY_DIRECTORY, ...categoryParts);
-	return `${fileBaseName}.md`;
-}
+import { getCategoryFilePath } from './util/category.js';
 
 const readCategory = async (categoryName: string): Promise<string> => {
 	return fs.readFile(getCategoryFilePath(categoryName), 'utf-8');
@@ -115,7 +55,7 @@ const getCategoriesForQuery = async ({
 	return categories;
 }
 
-const SKIP_REGEX = /<SKIP>(?<reason>[\s\S]*?)<\/SKIP>/;
+const SKIP_REGEX = /(<SKIP\/>|<SKIP>(?<reason>[\s\S]*?)<\/SKIP>)/;
 const RESPONSE_REGEX = /<RESPONSE>(?<response>[\s\S]*?)<\/RESPONSE>/;
 
 const isSkipped = (response: string) => SKIP_REGEX.test(response);

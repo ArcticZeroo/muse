@@ -5,6 +5,7 @@ import { ensureSummary } from './summary.js';
 import fs from 'node:fs/promises';
 import { MEMORY_DIRECTORY } from './args.js';
 import './tools.js';
+import { watchForChanges } from './watcher.js';
 
 await fs.mkdir(MEMORY_DIRECTORY, { recursive: true });
 
@@ -14,3 +15,6 @@ const transport = new StdioServerTransport();
 await MCP_SERVER.connect(transport);
 
 await ensureSummary();
+
+watchForChanges()
+	.catch(err => console.error('File watcher error:', err));
