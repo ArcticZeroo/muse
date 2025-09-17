@@ -1,9 +1,8 @@
 import fs from 'node:fs/promises';
-import { MEMORY_DIRECTORY } from './args.js';
-import fsSync from 'node:fs';
-import { FILE_SYSTEM_EVENTS } from './events.js';
 import path from 'node:path';
+import { MEMORY_DIRECTORY } from './args.js';
 import { VERSIONS_FILE_NAME } from './constants/files.js';
+import { FILE_SYSTEM_EVENTS } from './events.js';
 
 export const watchForChanges = async () => {
 	const watcher = fs.watch(MEMORY_DIRECTORY, { recursive: true, persistent: false });
@@ -23,15 +22,7 @@ export const watchForChanges = async () => {
 			return;
 		}
 
-		// added or removed
-		if (eventType === 'rename') {
-			if (!fsSync.existsSync(filename)) {
-				FILE_SYSTEM_EVENTS.emit('categoryDeleted', filename);
-			} else {
-				FILE_SYSTEM_EVENTS.emit('categoryDirty', filename);
-			}
-		} else if (eventType === 'change') {
-			FILE_SYSTEM_EVENTS.emit('categoryDirty', filename);
-		}
+		// Added, removed, changed all fall into the same bucket of "dirty"
+		FILE_SYSTEM_EVENTS.emit('categoryDirty', filename);
 	}
 }

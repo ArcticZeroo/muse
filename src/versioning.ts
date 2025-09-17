@@ -1,16 +1,20 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { jsonc } from 'jsonc';
-import { VERSIONS_FILE_NAME } from './constants/files.js';
+import crypto from 'node:crypto';
+import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
 import z from 'zod';
-import { CATEGORY_NAME_REGEX } from './memory.js';
-import { LockedMap } from './util/map.js';
-import { Lock, LockedResource } from './util/lock.js';
-import { MEMORY_DIRECTORY, SUMMARY_FILE_PATH } from './args.js';
+import { SUMMARY_FILE_PATH } from './args.js';
+import { USER_CATEGORY_NAME, VERSIONS_FILE_NAME } from './constants/files.js';
 import { Debouncer } from './debouncer.js';
 import { FILE_SYSTEM_EVENTS, MEMORY_EVENTS } from './events.js';
+import { summarizeCategory } from './summary.js';
 import { getCategoryFilePath, getCategoryNameFromFilePath } from './util/category.js';
-import crypto from 'node:crypto';
+import { LockedResource } from './util/lock.js';
+
+const VERSIONS_FILE_HEADER = `
+// This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
+// This file and summary.md will be automatically updated as you change/add/remove memory categories.
+`.trim()
 
 const versionEntrySchema = z.object({
 	contentHash: z.string().nonempty(),
@@ -20,7 +24,6 @@ const versionEntrySchema = z.object({
 type VersionEntry = z.infer<typeof versionEntrySchema>;
 
 const versionFileSchema = z.record(
-	z.string().nonempty().regex(CATEGORY_NAME_REGEX).describe('Category name'),
 	z.object({
 		contentHash: z.string().nonempty(),
 		description: z.string().nonempty(),
@@ -42,8 +45,18 @@ const getVersionsFromDisk = async (): Promise<VersionRecord> => {
 
 const VERSIONS_CACHE = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
 
-const versionDebouncer = new Debouncer(1000 /*settlingTimeMs*/);
-const categoryDebouncersByName = new Map<string /*categoryName*/, Debouncer>();
+const ensureUserCategory = (versions: Map<string, VersionEntry>) => {
+	if (!versions.has(USER_CATEGORY_NAME)) {
+		versions.set(USER_CATEGORY_NAME, {
+			contentHash: '',
+			description: 'This category contains information about the user and their specific preferences.'
+		});
+	}
+}
+
+const VERSION_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
+const CATEGORY_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
+const FILESYSTEM_DIRTY_CATEGORY_NAMES = new Set<string>();
 
 const updateVersionsFromDiskAsync = async () => {
 	await VERSIONS_CACHE.use(async (versions) => {
@@ -52,6 +65,7 @@ const updateVersionsFromDiskAsync = async () => {
 		for (const [categoryName, entry] of Object.entries(versionsFromDisk)) {
 			versions.set(categoryName, entry);
 		}
+		ensureUserCategory(versions);
 	});
 }
 
@@ -62,33 +76,81 @@ const hashContent = (content: string) => {
 }
 
 FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
-	versionDebouncer.trigger(() => {
-		updateVersionsFromDiskAsync()
-			.catch(err => console.error('Could not update versions from disk:', err));
-	});
+	// If we were about to update dirty categories, wait until we've updated versions from disk
+	CATEGORY_DEBOUNCER.poke();
+
+	updateVersionsFromDiskAsync()
+		.catch(err => console.error('Could not update versions from disk:', err));
+
+	VERSION_DEBOUNCER.trigger(updateSummaryFile);
 });
+
+const updateDirtyCategory = async (versions: Map<string, VersionEntry>, categoryName: string) => {
+	const filepath = getCategoryFilePath(categoryName);
+
+	if (!fsSync.existsSync(filepath)) {
+		versions.delete(categoryName);
+		return;
+	}
+
+	const fileContents = await fs.readFile(filepath, 'utf-8');
+	const contentHash = hashContent(fileContents);
+	const existingEntry = versions.get(categoryName);
+	if (existingEntry?.contentHash !== contentHash) {
+		versions.set(categoryName, {
+			contentHash,
+			description: await summarizeCategory(categoryName, fileContents)
+		});
+	}
+}
+
+const updateDirtyCategoriesAsync = async () => {
+	if (FILESYSTEM_DIRTY_CATEGORY_NAMES.size === 0) {
+		return;
+	}
+
+	const dirtyNames = Array.from(FILESYSTEM_DIRTY_CATEGORY_NAMES);
+	await VERSIONS_CACHE.use(async versions => {
+		const promises: Array<Promise<void>> = [];
+		for (const dirtyCategoryName of dirtyNames) {
+			promises.push(updateDirtyCategory(versions, dirtyCategoryName));
+		}
+		await Promise.all(promises);
+		VERSION_DEBOUNCER.trigger(updateSummaryFile);
+	});
+}
+
+const updateDirtyCategories = () => {
+	updateDirtyCategoriesAsync()
+		.catch(err => console.error('Failed to update dirty categories:', err));
+}
 
 FILE_SYSTEM_EVENTS.on('categoryDirty', (filename) => {
 	const categoryName = getCategoryNameFromFilePath(filename);
-	if (!categoryDebouncersByName.has(categoryName)) {
-		categoryDebouncersByName.set(categoryName, new Debouncer(1000 /*settlingTimeMs*/));
-	}
-
-	const debouncer = categoryDebouncersByName.get(categoryName)!;
-	debouncer.trigger(() => {
-		// todo: check the hash against
-	});
+	FILESYSTEM_DIRTY_CATEGORY_NAMES.add(categoryName);
+	CATEGORY_DEBOUNCER.trigger(updateDirtyCategories);
 });
 
-const updateSummaryFile = async (versions: Map<string, VersionEntry>) => {
-	const entriesInOrder = Array.from(versions.entries()).sort(([a], [b]) => a.localeCompare(b));
-	const lines = entriesInOrder.flatMap(([key, { description }]) => {
-		return [
-			`### ${key}`,
-			`${description}`
-		];
-	}).join('\n');
-	await fs.writeFile(SUMMARY_FILE_PATH, lines, 'utf-8');
+const updateSummaryFile = () => {
+	VERSIONS_CACHE.use(async versions => {
+		ensureUserCategory(versions);
+
+		const entriesInOrder = Array.from(versions.entries())
+			// TS won't let me destructure in the parameters of the filter function for some reason
+			.sort((a, b) => a[0].localeCompare(b[0]));
+		const lines = entriesInOrder.flatMap(([key, { description }]) => {
+			return [
+				`### ${key}`,
+				`${description}`
+			];
+		}).join('\n');
+
+		const jsonContents = JSON.stringify(Object.fromEntries(entriesInOrder), null, '\t');
+		await Promise.all([
+			fs.writeFile(VERSIONS_FILE_NAME, `${VERSIONS_FILE_HEADER}\n${jsonContents}`, 'utf-8'),
+			fs.writeFile(SUMMARY_FILE_PATH, lines, 'utf-8')
+		]);
+	}).catch(err => console.error('Failed to update summary file:', err));
 }
 
 MEMORY_EVENTS.on('categoryDirty', ({ name, description, content }) => {
@@ -98,6 +160,7 @@ MEMORY_EVENTS.on('categoryDirty', ({ name, description, content }) => {
 			contentHash: hash,
 			description
 		});
-		return updateSummaryFile(versions);
+
+		VERSION_DEBOUNCER.trigger(updateSummaryFile);
 	}).catch(err => console.error('Failed to update summary after category is marked dirty:', err));
 });
