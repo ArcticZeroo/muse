@@ -60,7 +60,14 @@ The reason will be used in the next step to determine what information to retrie
 ${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group with existing categories where it makes sense. New categories must match /[\\w_-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
 `.trim();
 
-export const getInformationFromSingleCategoryPrompt = (query: string, content: string) => {
+interface IGetInformationFromSingleCategoryPromptOptions {
+	query: string;
+	categoryName: string;
+	content: string;
+	reason: string;
+}
+
+export const getInformationFromSingleCategoryPrompt = ({ query, categoryName, content, reason }: IGetInformationFromSingleCategoryPromptOptions) => {
     return `
 ${MAIN_SYSTEM_PROMPT}
 Your current task is to answer a question/find some information based on the information available in the archive.
@@ -69,9 +76,16 @@ Your current task is to answer a question/find some information based on the inf
 ${query}
 </QUERY>
 
-<ARCHIVE>
+<ARCHIVE_CONTENT categoryName="${categoryName}">
 ${content}
-</ARCHIVE>
+</ARCHIVE_CONTENT>
+
+This category has been selected with the following reason:
+<REASON>
+${reason}
+</REASON>
+
+Use this reason to help you determine what information, if any, is relevant to the query.
 
 You will return a <RESPONSE> tag containing the answer to the question, e.g. <RESPONSE>answer in here</RESPONSE>. It is ok if you only have a partial answer to the question - we will look at other categories too.
 If this category doesn't answer anything, return a <SKIP> tag instead of a <RESPONSE> tag, e.g. <SKIP>information not found</SKIP>.

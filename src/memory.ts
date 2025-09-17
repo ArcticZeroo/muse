@@ -2,7 +2,6 @@ import fs from 'node:fs/promises';
 import { SUMMARY_FILE_PATH } from './args.js';
 import path from 'node:path';
 import {
-	getCategoriesFromQueryPrompt,
 	getInformationFromSingleCategoryPrompt,
 	getSummarizeInformationFromManyCategoriesPrompt,
 	getUpdateInSingleCategoryPrompt
@@ -10,69 +9,33 @@ import {
 import { retrieveSampledMessage } from './util/mcp.js';
 import { getSummary, summarizeCategory, updateSummary } from './summary.js';
 import { getCategoryFilePath } from './util/category.js';
+import { ANSWER_TAG, CATEGORY_CONTENT_TAG, RESPONSE_TAG, SKIP_TAG } from './constants/regex.js';
+import { getCategoriesForQuery, IQueryCategory } from './sampling.js';
 
 const readCategory = async (categoryName: string): Promise<string> => {
 	return fs.readFile(getCategoryFilePath(categoryName), 'utf-8');
 }
 
-interface IGetCategoriesForQueryOptions {
-	summary: string;
-	query: string;
-	isIngestion: boolean;
-}
-
-const getCategoriesForQuery = async ({
-										 summary,
-										 query,
-										 isIngestion
-									 }: IGetCategoriesForQueryOptions): Promise<Array<string>> => {
-	const prompt = getCategoriesFromQueryPrompt(summary, query, isIngestion);
-
-	const response = await retrieveSampledMessage({
-		messages:  [prompt],
-		maxTokens: 5000
-	});
-
-	const matches = response.matchAll(CATEGORIES_REGEX);
-	const categories: Array<string> = [];
-
-	for (const match of matches) {
-		const category = match.groups?.category?.trim();
-		if (category) {
-			// todo: ask the AI again?
-			if (!CATEGORY_NAME_REGEX.test(category)) {
-				throw new Error(`AI generated an invalid category name: ${category}`);
-			}
-
-			categories.push(category);
-		}
-	}
-
-	return categories;
-}
-
-const SKIP_REGEX = /(<SKIP\/>|<SKIP>(?<reason>[\s\S]*?)<\/SKIP>)/;
-const RESPONSE_REGEX = /<RESPONSE>(?<response>[\s\S]*?)<\/RESPONSE>/;
-
-const isSkipped = (response: string) => SKIP_REGEX.test(response);
-
-const queryCategory = async (categoryName: string, query: string): Promise<string | undefined> => {
+const queryCategory = async ({ categoryName, reason }: IQueryCategory, query: string): Promise<string | undefined> => {
 	const categoryContent = await readCategory(categoryName);
-	const prompt = getInformationFromSingleCategoryPrompt(query, categoryContent);
+	const prompt = getInformationFromSingleCategoryPrompt({
+		query,
+		categoryName,
+		reason,
+		content: categoryContent
+	});
 
 	const response = await retrieveSampledMessage({
 		messages:  [prompt],
 		maxTokens: 5_000
 	});
 
-	if (SKIP_REGEX.test(categoryContent)) {
+	if (SKIP_TAG.isMatch(categoryContent)) {
 		return undefined;
 	}
 
-	return response.match(RESPONSE_REGEX)?.groups?.response || undefined;
+	return RESPONSE_TAG.matchOne(response);
 }
-
-const ANSWER_REGEX = /<ANSWER>(?<answer>[\s\S]*?)<\/ANSWER>/;
 
 const summarizeCategories = async (query: string, responses: Record<string /*categoryName*/, string /*response*/>): Promise<string> => {
 	const prompt = getSummarizeInformationFromManyCategoriesPrompt(query, responses);
@@ -82,7 +45,7 @@ const summarizeCategories = async (query: string, responses: Record<string /*cat
 		maxTokens: 50_000
 	});
 
-	const match = response.match(ANSWER_REGEX)?.groups?.answer;
+	const match = ANSWER_TAG.matchOne(response);
 	if (!match) {
 		throw new Error('Failed to parse answer from the response');
 	}
@@ -114,7 +77,7 @@ export const queryMemory = async (query: string): Promise<string> => {
 	await Promise.all(categories.map(async (category) => {
 		const response = await queryCategory(category, query);
 		if (response) {
-			categoryResponses[category] = response;
+			categoryResponses[category.categoryName] = response;
 		}
 	}));
 
@@ -130,8 +93,6 @@ export const queryMemory = async (query: string): Promise<string> => {
 
 	return summarizeCategories(query, categoryResponses);
 }
-
-const CATEGORY_CONTENT_REGEX = /<CATEGORY_CONTENT>(?<content>[\s\S]*?)<\/CATEGORY_CONTENT>/;
 
 interface IUpdateCategoryOptions {
 	summary: string;
@@ -159,11 +120,11 @@ const updateCategory = async ({
 		maxTokens: 50_000
 	});
 
-	if (isSkipped(response)) {
+	if (SKIP_TAG.isMatch(response)) {
 		return undefined;
 	}
 
-	const match = response.match(CATEGORY_CONTENT_REGEX)?.groups?.content;
+	const match = CATEGORY_CONTENT_TAG.matchOne(response);
 	if (!match) {
 		return undefined;
 	}
@@ -193,13 +154,13 @@ export const ingestMemory = async (information: string): Promise<void> => {
 
 	const updatedDescriptions: Record<string /*categoryName*/, string /*summary*/> = {};
 
-	await Promise.all(categories.map(async (category) => updateCategory({
-		categoryName: category,
+	await Promise.all(categories.map(async ({ categoryName }) => updateCategory({
+		categoryName: categoryName,
 		information,
 		summary
 	}).then(summary => {
 		if (summary) {
-			updatedDescriptions[category] = summary;
+			updatedDescriptions[categoryName] = summary;
 		}
 	})));
 
