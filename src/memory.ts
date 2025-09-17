@@ -15,10 +15,6 @@ const readCategory = async (categoryName: string): Promise<string> => {
 	return fs.readFile(getCategoryFilePath(categoryName), 'utf-8');
 }
 
-const CATEGORIES_REGEX = /<CATEGORY>(?<category>[\s\S]*?)<\/CATEGORY>/g;
-
-export const CATEGORY_NAME_REGEX = /^([\w_-]+\/)*[\w_-]+$/;
-
 interface IGetCategoriesForQueryOptions {
 	summary: string;
 	query: string;
