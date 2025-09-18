@@ -1,5 +1,6 @@
 import EventEmitter from 'node:events';
 import TypedEventEmitter from './models/typed-emitter.js';
+import { EventName } from 'chokidar/handler.js';
 
 interface ICategoryDirtyEvent {
 	name: string;
@@ -15,7 +16,7 @@ type FileSystemEvents = {
 	categoryDirty: (filename: string) => void;
 	categoryDeleted: (filename: string) => void;
 	versionsDirty: () => void;
-	unknownFileChanged: (eventType: 'rename' | 'change') => void;
+	unknownFileChanged: (eventType: EventName) => void;
 }
 
 export const MEMORY_EVENTS = new EventEmitter() as TypedEventEmitter<MemoryEvents>;

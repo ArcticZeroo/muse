@@ -1,16 +1,19 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { MEMORY_DIRECTORY } from './args.js';
 import { VERSIONS_FILE_NAME } from './constants/files.js';
 import { FILE_SYSTEM_EVENTS } from './events.js';
 import { logInfo } from './util/mcp.js';
+import chokidar from 'chokidar';
 
 export const watchForChanges = async () => {
 	logInfo('Watching for changes...');
 
-	const watcher = fs.watch(MEMORY_DIRECTORY, { recursive: true, persistent: false });
+	const watcher = chokidar.watch(MEMORY_DIRECTORY, {
+		ignored: (file, stats) => stats?.isFile() === true && path.basename(file) !== '.gitignore',
+		persistent: false
+	});
 
-	for await (const { filename, eventType } of watcher) {
+	watcher.on('all', (eventType, filename) => {
 		logInfo(`File system event: ${eventType} on ${filename || '<unknown file>'}`);
 
 		if (!filename) {
@@ -29,5 +32,5 @@ export const watchForChanges = async () => {
 
 		// Added, removed, changed all fall into the same bucket of "dirty"
 		FILE_SYSTEM_EVENTS.emit('categoryDirty', filename);
-	}
+	})
 }

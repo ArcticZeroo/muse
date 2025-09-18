@@ -42,6 +42,7 @@ interface IRetrieveSampledMessageOptions {
     systemPrompt?: string;
 }
 
+// todo: consider ratelimiting?
 export const retrieveSampledMessage = async ({ messages, systemPrompt, maxTokens }: IRetrieveSampledMessageOptions): Promise<string> => {
     const normalizedMessages = messages.map((message) => {
         if (typeof message === 'string') {
@@ -73,6 +74,7 @@ export const retrieveSampledMessage = async ({ messages, systemPrompt, maxTokens
         throw new Error('Expected text content from MCP sampling');
     }
 
+	logInfo(result.content.text);
     return result.content.text;
 };
 

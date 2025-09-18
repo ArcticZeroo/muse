@@ -1,3 +1,5 @@
+import { logInfo } from './util/mcp.js';
+
 type PromiseResolveFunction<T = void> = (result: PromiseLike<T> | T) => void;
 
 export class Debouncer {

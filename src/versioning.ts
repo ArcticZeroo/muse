@@ -3,14 +3,16 @@ import crypto from 'node:crypto';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import z from 'zod';
-import { SUMMARY_FILE_PATH } from './args.js';
-import { USER_CATEGORY_NAME, VERSIONS_FILE_NAME } from './constants/files.js';
+import { SUMMARY_FILE_PATH, VERSIONS_FILE_PATH } from './args.js';
+import { USER_CATEGORY_NAME } from './constants/files.js';
 import { Debouncer } from './debouncer.js';
 import { FILE_SYSTEM_EVENTS, MEMORY_EVENTS } from './events.js';
-import { summarizeCategory } from './summary.js';
+import { serializeSummaryFromVersions, summarizeCategory } from './summary.js';
 import { getCategoryFilePath, getCategoryNameFromFilePath } from './util/category.js';
 import { LockedResource } from './util/lock.js';
-import { logInfo } from './util/mcp.js';
+import { logError, logInfo } from './util/mcp.js';
+import { findAllMemoryNodes } from './util/filesystem.js';
+import { MaybePromise } from './models/async.js';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
@@ -18,35 +20,75 @@ const VERSIONS_FILE_HEADER = `
 `.trim()
 
 const VERSION_ENTRY_SCHEMA = z.object({
-	contentHash: z.string().nonempty(),
-	description: z.string().nonempty(),
+	contentHash: z.string(),
+	description: z.string(),
 });
 
-type VersionEntry = z.infer<typeof VERSION_ENTRY_SCHEMA>;
+export type VersionEntry = z.infer<typeof VERSION_ENTRY_SCHEMA>;
 
 const VERSION_FILE_SCHEMA = z.record(
-	z.object({
-		contentHash: z.string().nonempty(),
-		description: z.string().nonempty(),
-	})
+	VERSION_ENTRY_SCHEMA
 );
 
-type VersionRecord = z.infer<typeof  VERSION_FILE_SCHEMA>;
+export type VersionRecord = z.infer<typeof VERSION_FILE_SCHEMA>;
 
-const VERSIONS_CACHE = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
+export type VersionMap = Map<string /*categoryName*/, VersionEntry>;
 
-const VERSION_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
-const CATEGORY_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
+const isSameVersionMap = (a: VersionMap, b: VersionMap) => {
+	if (a.size !== b.size) {
+		return false;
+	}
+
+	for (const [key, valueA] of a) {
+		if (!b.has(key)) {
+			return false;
+		}
+
+		const valueB = b.get(key)!;
+		if (valueA.contentHash !== valueB.contentHash || valueA.description !== valueB.description) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+const useVersionCache = (() => {
+	const cache = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
+
+	return async (work: (resource: VersionMap) => MaybePromise<void>) => {
+		await cache.use(async (resource) => {
+			const beforeWork = new Map();
+			for (const [key, value] of resource) {
+				beforeWork.set(key, { ...value });
+			}
+
+			await work(resource);
+
+			ensureUserCategory(resource);
+
+			if (!isSameVersionMap(beforeWork, resource)) {
+				await updateSummaryFile(resource);
+			}
+		});
+	};
+})();
+
+const CATEGORY_DEBOUNCER = new Debouncer(250 /*settlingTimeMs*/);
 const FILESYSTEM_DIRTY_CATEGORY_NAMES = new Set<string>();
 
-
 const getVersionsFromDisk = async (): Promise<VersionRecord> => {
-	const fileContents = await fs.readFile(VERSIONS_FILE_NAME, 'utf-8');
+	if (!fsSync.existsSync(VERSIONS_FILE_PATH)) {
+		logInfo('Versions file does not exist yet');
+		return {};
+	}
+
+	const fileContents = await fs.readFile(VERSIONS_FILE_PATH, 'utf-8');
 	try {
 		const result = jsonc.parse(fileContents);
 		return  VERSION_FILE_SCHEMA.parse(result);
 	} catch (err) {
-		console.error('Failed to parse versions file, returning empty object:', err);
+		logError(`Failed to parse versions file, returning empty object: ${err}`);
 		return {};
 	}
 }
@@ -61,13 +103,12 @@ const ensureUserCategory = (versions: Map<string, VersionEntry>) => {
 }
 
 const updateVersionsFromDiskAsync = async () => {
-	await VERSIONS_CACHE.use(async (versions) => {
+	await useVersionCache(async (versions) => {
 		const versionsFromDisk = await getVersionsFromDisk();
 		versions.clear();
 		for (const [categoryName, entry] of Object.entries(versionsFromDisk)) {
 			versions.set(categoryName, entry);
 		}
-		ensureUserCategory(versions);
 	});
 }
 
@@ -79,6 +120,7 @@ const updateDirtyCategory = async (versions: Map<string, VersionEntry>, category
 	const filepath = getCategoryFilePath(categoryName);
 
 	if (!fsSync.existsSync(filepath)) {
+		logInfo(`Category file for "${categoryName}" no longer exists, removing from versions`);
 		versions.delete(categoryName);
 		return;
 	}
@@ -87,6 +129,7 @@ const updateDirtyCategory = async (versions: Map<string, VersionEntry>, category
 	const contentHash = hashContent(fileContents);
 	const existingEntry = versions.get(categoryName);
 	if (existingEntry?.contentHash !== contentHash) {
+		logInfo(`Category "${categoryName}" has changed, updating description`);
 		versions.set(categoryName, {
 			contentHash,
 			description: await summarizeCategory(categoryName, fileContents)
@@ -102,13 +145,10 @@ const updateDirtyCategoriesAsync = async () => {
 	const dirtyNames = Array.from(FILESYSTEM_DIRTY_CATEGORY_NAMES);
 	logInfo(`Updating ${dirtyNames.length} dirty categories: ${dirtyNames.join(', ')}`);
 
-	await VERSIONS_CACHE.use(async versions => {
-		const promises: Array<Promise<void>> = [];
+	await useVersionCache(async versions => {
 		for (const dirtyCategoryName of dirtyNames) {
-			promises.push(updateDirtyCategory(versions, dirtyCategoryName));
+			await updateDirtyCategory(versions, dirtyCategoryName);
 		}
-		await Promise.all(promises);
-		VERSION_DEBOUNCER.trigger(updateSummaryFile);
 	});
 }
 
@@ -117,28 +157,20 @@ const updateDirtyCategories = () => {
 		.catch(err => console.error('Failed to update dirty categories:', err));
 }
 
-const updateSummaryFile = () => {
-	logInfo('Updating summary file');
+const updateSummaryFile = async (versions: VersionMap) => {
+	logInfo('Updating summary file after versions map change');
 
-	VERSIONS_CACHE.use(async versions => {
-		ensureUserCategory(versions);
+	const jsonContents = JSON.stringify(Object.fromEntries(versions), null, '\t');
+	await Promise.all([
+		fs.writeFile(VERSIONS_FILE_PATH, `${VERSIONS_FILE_HEADER}\n${jsonContents}`, 'utf-8'),
+		fs.writeFile(SUMMARY_FILE_PATH, serializeSummaryFromVersions(versions), 'utf-8')
+	]);
+}
 
-		const entriesInOrder = Array.from(versions.entries())
-			// TS won't let me destructure in the parameters of the filter function for some reason
-			.sort((a, b) => a[0].localeCompare(b[0]));
-		const lines = entriesInOrder.flatMap(([key, { description }]) => {
-			return [
-				`### ${key}`,
-				`${description}`
-			];
-		}).join('\n');
-
-		const jsonContents = JSON.stringify(Object.fromEntries(entriesInOrder), null, '\t');
-		await Promise.all([
-			fs.writeFile(VERSIONS_FILE_NAME, `${VERSIONS_FILE_HEADER}\n${jsonContents}`, 'utf-8'),
-			fs.writeFile(SUMMARY_FILE_PATH, lines, 'utf-8')
-		]);
-	}).catch(err => console.error('Failed to update summary file:', err));
+const markAllNodesDirty = async () => {
+	for await (const node of findAllMemoryNodes()) {
+		FILE_SYSTEM_EVENTS.emit('categoryDirty', node.filePath);
+	}
 }
 
 FILE_SYSTEM_EVENTS.on('categoryDirty', (filename) => {
@@ -157,23 +189,29 @@ FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
 
 	updateVersionsFromDiskAsync()
 		.catch(err => console.error('Could not update versions from disk:', err));
-
-	VERSION_DEBOUNCER.trigger(updateSummaryFile);
 });
 
 MEMORY_EVENTS.on('categoryDirty', ({ name, description, content }) => {
 	logInfo(`Category "${name}" marked dirty by memory system`);
 
 	const hash = hashContent(content);
-	VERSIONS_CACHE.use((versions) => {
+	useVersionCache((versions) => {
 		versions.set(name, {
 			contentHash: hash,
 			description
 		});
-
-		VERSION_DEBOUNCER.trigger(updateSummaryFile);
 	}).catch(err => console.error('Failed to update summary after category is marked dirty:', err));
 });
 
-await updateVersionsFromDiskAsync();
-VERSION_DEBOUNCER.trigger(updateSummaryFile);
+export const readVersions = async (): Promise<VersionMap> => {
+	return new Promise((resolve, reject) => {
+		useVersionCache(versions => {
+			resolve(new Map(versions));
+		}).catch(reject);
+	});
+}
+
+export const startVersioningWatcher = async () => {
+	await updateVersionsFromDiskAsync();
+	await markAllNodesDirty();
+}
