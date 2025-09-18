@@ -7,12 +7,12 @@ export const serializeSummaryFromVersions = (versions: Map<string /*categoryName
 	const entriesInOrder = Array.from(versions.entries())
 		// TS won't let me destructure in the parameters of the filter function for some reason
 		.sort(([a], [b]) => a.localeCompare(b));
-	return entriesInOrder.flatMap(([key, { description }]) => {
+	return entriesInOrder.map(([key, { description }]) => {
 		return [
 			`### ${key}`,
 			`${description}`
-		];
-	}).join('\n');
+		].join('\n');
+	}).join('\n\n');
 }
 
 export const getSummary = async (): Promise<string> => {
