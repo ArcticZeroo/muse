@@ -1,6 +1,6 @@
 import { getCategoriesFromQueryPrompt } from './constants/prompts.js';
 import { CATEGORY_NAME_TAG, CATEGORY_TAG, REASON_TAG, TagRegexManager } from './constants/regex.js';
-import { logError, retrieveSampledMessage } from './util/mcp.js';
+import { retrieveSampledMessage } from './util/mcp.js';
 import { isCategoryMissing } from './util/category.js';
 
 interface IGetCategoriesForQueryOptions {
