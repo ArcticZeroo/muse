@@ -1,0 +1,52 @@
+# muse
+
+Muse is an MCP server that provides markdown-based memory for any AI agent supporting MCP sampling*.
+
+The idea is that the agent builds up a memory over time, which essentially becomes documentation for your codebase.
+Since they're just markdown files, you can (and should) check them into your version control system to share with
+your team.
+When memory files are created/deleted/updated outside the MCP server (aka by humans), muse will automatically ingest
+those changes into its memory.
+
+*Note: MCP sampling is currently (as of writing) only supported in VSCode, and occasionally has some bugs
+(e.g. you may have to restart VSCode every so often in case the server starts getting timeouts from VSCode). This
+project _heavily_ uses MCP sampling, so you should probably only use models that don't count towards your
+request budget. There is no model hint provided by this project at the moment.
+
+## Installation
+
+Add an MCP server with the command `npx @arcticzeroo/muse <memory directory>`. Optionally you can also include a 
+context file with `npx @arcticzeroo/muse <memory directory> --context <context file>`.
+
+In `mcp.json`, this would look like:
+
+```json
+{
+  "servers": {
+    "muse": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "npx",
+        "@arcticzeroo/muse",
+        "<memory directory>"
+      ]
+    }
+  }
+}
+```
+
+Adding a context file can help a lot if your codebase has a lot of invented terminology.
+
+Further, it is probably a good idea to add a line to your `copilot-instructions.md` (or equivalent) that says something like:
+
+```
+IMPORTANT: Always query memory in muse before searching/writing code. Once you're done with your task, make sure to ingest into muse's memory with any new information you learned.
+```
+
+## Usage
+
+Once you have the MCP server running, you can use it in your AI agent however you like. You can do things like:
+- Ask the AI to investigate some feature, architecture, language patterns, etc. and ingest it into memory.
+- Ask the AI to go through your existing copilot-instructions file, investigate the related code, and ingest findings into memory.
+- Ask the AI to query memory for some topic.
