@@ -1,6 +1,7 @@
 import { USER_CATEGORY_NAME, USER_FILE_NAME } from '../constants/files.js';
 import path from 'node:path';
 import { MEMORY_DIRECTORY } from '../args.js';
+import fsSync from 'node:fs';
 
 const getCategoryParts = (categoryName: string): string[] => {
 	return categoryName === USER_CATEGORY_NAME
@@ -34,3 +35,7 @@ export const getCategoryNameFromFilePath = (filePath: string): string => {
 	}
 	return parts.join('/');
 }
+
+export const isCategoryMissing = (categoryName: string): boolean => {
+    return categoryName !== USER_CATEGORY_NAME && !fsSync.existsSync(getCategoryFilePath(categoryName));
+};

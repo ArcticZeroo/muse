@@ -7,8 +7,8 @@ import { SUMMARY_FILE_PATH, VERSIONS_FILE_PATH } from './args.js';
 import { USER_CATEGORY_NAME } from './constants/files.js';
 import { Debouncer } from './debouncer.js';
 import { FILE_SYSTEM_EVENTS, ICategoryDirtyEvent, MEMORY_EVENTS } from './events.js';
-import { serializeSummaryFromVersions, retrieveCategoryDescriptionAsync } from './summary.js';
-import { getCategoryFilePath, getCategoryNameFromFilePath } from './util/category.js';
+import { retrieveCategoryDescriptionAsync, serializeSummaryFromVersions } from './summary.js';
+import { getCategoryFilePath, getCategoryNameFromFilePath, isCategoryMissing } from './util/category.js';
 import { LockedResource } from './util/lock.js';
 import { logError, logInfo } from './util/mcp.js';
 import { MaybePromise } from './models/async.js';
@@ -104,10 +104,6 @@ const ensureCategories = (versions: Map<string, VersionEntry>) => {
 
 	// just in case a bug crept in...
 	versions.delete('summary');
-}
-
-const isCategoryMissing = (categoryName: string): boolean => {
-	return categoryName !== USER_CATEGORY_NAME && !fsSync.existsSync(getCategoryFilePath(categoryName));
 }
 
 const updateVersionsFromDiskAsync = async (shouldLogLoad: boolean = false) => {

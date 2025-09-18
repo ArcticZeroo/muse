@@ -1,6 +1,7 @@
 import { getCategoriesFromQueryPrompt } from './constants/prompts.js';
 import { CATEGORY_NAME_TAG, CATEGORY_TAG, REASON_TAG, TagRegexManager } from './constants/regex.js';
 import { logError, retrieveSampledMessage } from './util/mcp.js';
+import { isCategoryMissing } from './util/category.js';
 
 interface IGetCategoriesForQueryOptions {
     summary: string;
@@ -21,8 +22,11 @@ export const parseQueryCategories = (tag: TagRegexManager, response: string): Ar
         const reason = REASON_TAG.matchOne(categoryContent);
 
         if (!categoryName || !reason) {
-            logError(`Category name: ${categoryName}, reason: ${reason}, full content: ${categoryContent}`);
             throw new Error(`AI generated an invalid category block: ${categoryContent}`);
+        }
+
+        if (isCategoryMissing(categoryName)) {
+            throw new Error(`AI asked for a category "${categoryName}" which is missing`);
         }
 
         categories.push({ categoryName, reason });
