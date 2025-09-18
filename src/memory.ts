@@ -1,12 +1,11 @@
 import fs from 'node:fs/promises';
-import { SUMMARY_FILE_PATH } from './args.js';
 import path from 'node:path';
 import {
 	getInformationFromSingleCategoryPrompt,
 	getSummarizeInformationFromManyCategoriesPrompt,
 	getUpdateInSingleCategoryPrompt
 } from './constants/prompts.js';
-import { logError, logInfo, logWarn, retrieveSampledMessage } from './util/mcp.js';
+import { logError, logInfo, retrieveSampledMessage } from './util/mcp.js';
 import { getSummary, summarizeCategory } from './summary.js';
 import { getCategoryFilePath } from './util/category.js';
 import { ANSWER_TAG, CATEGORY_CONTENT_TAG, RESPONSE_TAG, SKIP_TAG } from './constants/regex.js';

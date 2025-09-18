@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import { MEMORY_DIRECTORY } from './args.js';
 import { USER_FILE_NAME } from './constants/files.js';
 import fsSync from 'fs';
-import { logInfo } from './util/mcp.js';
 
 const requiredGitignoreLines = [
 	USER_FILE_NAME
