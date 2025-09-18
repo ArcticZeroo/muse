@@ -15,8 +15,8 @@ request budget. There is no model hint provided by this project at the moment.
 
 ## Installation
 
-Add an MCP server with the command `npx @arcticzeroo/muse <memory directory>`. Optionally you can also include a 
-context file with `npx @arcticzeroo/muse <memory directory> --context <context file>`.
+Add an MCP server with the command `npx -y @arcticzeroo/muse <memory directory>`. Optionally you can also include a 
+context file with `npx -y @arcticzeroo/muse <memory directory> --context <context file>`.
 
 In `mcp.json`, this would look like:
 
