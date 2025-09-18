@@ -1,17 +1,35 @@
 import { MCP_SERVER } from '../mcp-server.js';
 import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-export const logInfo = (message: string) => {
-    if (!MCP_SERVER.isConnected()) {
-        console.log(message);
-        return;
-    }
+type LogLevels = Parameters<typeof MCP_SERVER.server.sendLoggingMessage>[0]['level'];
 
-    MCP_SERVER.server.sendLoggingMessage({
-        level: 'info',
-        data: message
-    });
+const log = (message: string, level: LogLevels, ifNotConnected: (message: string) => void) => {
+	if (!MCP_SERVER.isConnected()) {
+		ifNotConnected(message);
+		return;
+	}
+
+	MCP_SERVER.server.sendLoggingMessage({
+		level,
+		data: message
+	}).catch(err => console.error('Failed to send log message to MCP server:', err));
+}
+
+export const logInfo = (message: string) => {
+	log(message, 'info', console.log);
 };
+
+export const logError = (message: string) => {
+	log(message, 'error', console.error);
+};
+
+export const logDebug = (message: string) => {
+	log(message, 'debug', console.debug);
+}
+
+export const logWarn = (message: string) => {
+	log(message, 'warning', console.warn);
+}
 
 export interface ISamplingMessageData {
     role:    'user' | 'assistant';

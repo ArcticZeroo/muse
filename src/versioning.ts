@@ -10,40 +10,46 @@ import { FILE_SYSTEM_EVENTS, MEMORY_EVENTS } from './events.js';
 import { summarizeCategory } from './summary.js';
 import { getCategoryFilePath, getCategoryNameFromFilePath } from './util/category.js';
 import { LockedResource } from './util/lock.js';
+import { logInfo } from './util/mcp.js';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
 // This file and summary.md will be automatically updated as you change/add/remove memory categories.
 `.trim()
 
-const versionEntrySchema = z.object({
+const VERSION_ENTRY_SCHEMA = z.object({
 	contentHash: z.string().nonempty(),
 	description: z.string().nonempty(),
 });
 
-type VersionEntry = z.infer<typeof versionEntrySchema>;
+type VersionEntry = z.infer<typeof VERSION_ENTRY_SCHEMA>;
 
-const versionFileSchema = z.record(
+const VERSION_FILE_SCHEMA = z.record(
 	z.object({
 		contentHash: z.string().nonempty(),
 		description: z.string().nonempty(),
 	})
 );
 
-type VersionRecord = z.infer<typeof  versionFileSchema>;
+type VersionRecord = z.infer<typeof  VERSION_FILE_SCHEMA>;
+
+const VERSIONS_CACHE = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
+
+const VERSION_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
+const CATEGORY_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
+const FILESYSTEM_DIRTY_CATEGORY_NAMES = new Set<string>();
+
 
 const getVersionsFromDisk = async (): Promise<VersionRecord> => {
 	const fileContents = await fs.readFile(VERSIONS_FILE_NAME, 'utf-8');
 	try {
 		const result = jsonc.parse(fileContents);
-		return  versionFileSchema.parse(result);
+		return  VERSION_FILE_SCHEMA.parse(result);
 	} catch (err) {
 		console.error('Failed to parse versions file, returning empty object:', err);
 		return {};
 	}
 }
-
-const VERSIONS_CACHE = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
 
 const ensureUserCategory = (versions: Map<string, VersionEntry>) => {
 	if (!versions.has(USER_CATEGORY_NAME)) {
@@ -53,10 +59,6 @@ const ensureUserCategory = (versions: Map<string, VersionEntry>) => {
 		});
 	}
 }
-
-const VERSION_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
-const CATEGORY_DEBOUNCER = new Debouncer(1000 /*settlingTimeMs*/);
-const FILESYSTEM_DIRTY_CATEGORY_NAMES = new Set<string>();
 
 const updateVersionsFromDiskAsync = async () => {
 	await VERSIONS_CACHE.use(async (versions) => {
@@ -69,21 +71,9 @@ const updateVersionsFromDiskAsync = async () => {
 	});
 }
 
-await updateVersionsFromDiskAsync();
-
 const hashContent = (content: string) => {
 	return crypto.createHash('sha256').update(content, 'utf-8').digest('hex');
 }
-
-FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
-	// If we were about to update dirty categories, wait until we've updated versions from disk
-	CATEGORY_DEBOUNCER.poke();
-
-	updateVersionsFromDiskAsync()
-		.catch(err => console.error('Could not update versions from disk:', err));
-
-	VERSION_DEBOUNCER.trigger(updateSummaryFile);
-});
 
 const updateDirtyCategory = async (versions: Map<string, VersionEntry>, categoryName: string) => {
 	const filepath = getCategoryFilePath(categoryName);
@@ -110,6 +100,8 @@ const updateDirtyCategoriesAsync = async () => {
 	}
 
 	const dirtyNames = Array.from(FILESYSTEM_DIRTY_CATEGORY_NAMES);
+	logInfo(`Updating ${dirtyNames.length} dirty categories: ${dirtyNames.join(', ')}`);
+
 	await VERSIONS_CACHE.use(async versions => {
 		const promises: Array<Promise<void>> = [];
 		for (const dirtyCategoryName of dirtyNames) {
@@ -125,13 +117,9 @@ const updateDirtyCategories = () => {
 		.catch(err => console.error('Failed to update dirty categories:', err));
 }
 
-FILE_SYSTEM_EVENTS.on('categoryDirty', (filename) => {
-	const categoryName = getCategoryNameFromFilePath(filename);
-	FILESYSTEM_DIRTY_CATEGORY_NAMES.add(categoryName);
-	CATEGORY_DEBOUNCER.trigger(updateDirtyCategories);
-});
-
 const updateSummaryFile = () => {
+	logInfo('Updating summary file');
+
 	VERSIONS_CACHE.use(async versions => {
 		ensureUserCategory(versions);
 
@@ -153,7 +141,29 @@ const updateSummaryFile = () => {
 	}).catch(err => console.error('Failed to update summary file:', err));
 }
 
+FILE_SYSTEM_EVENTS.on('categoryDirty', (filename) => {
+	logInfo(`Category file changed on disk: ${filename}`);
+
+	const categoryName = getCategoryNameFromFilePath(filename);
+	FILESYSTEM_DIRTY_CATEGORY_NAMES.add(categoryName);
+	CATEGORY_DEBOUNCER.trigger(updateDirtyCategories);
+});
+
+FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
+	logInfo('Versions file changed on disk');
+
+	// If we were about to update dirty categories, wait until we've updated versions from disk
+	CATEGORY_DEBOUNCER.poke();
+
+	updateVersionsFromDiskAsync()
+		.catch(err => console.error('Could not update versions from disk:', err));
+
+	VERSION_DEBOUNCER.trigger(updateSummaryFile);
+});
+
 MEMORY_EVENTS.on('categoryDirty', ({ name, description, content }) => {
+	logInfo(`Category "${name}" marked dirty by memory system`);
+
 	const hash = hashContent(content);
 	VERSIONS_CACHE.use((versions) => {
 		versions.set(name, {
@@ -164,3 +174,6 @@ MEMORY_EVENTS.on('categoryDirty', ({ name, description, content }) => {
 		VERSION_DEBOUNCER.trigger(updateSummaryFile);
 	}).catch(err => console.error('Failed to update summary after category is marked dirty:', err));
 });
+
+await updateVersionsFromDiskAsync();
+VERSION_DEBOUNCER.trigger(updateSummaryFile);

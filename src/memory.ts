@@ -6,11 +6,12 @@ import {
 	getSummarizeInformationFromManyCategoriesPrompt,
 	getUpdateInSingleCategoryPrompt
 } from './constants/prompts.js';
-import { retrieveSampledMessage } from './util/mcp.js';
-import { getSummary, summarizeCategory, updateSummary } from './summary.js';
+import { logError, logInfo, logWarn, retrieveSampledMessage } from './util/mcp.js';
+import { getSummary, summarizeCategory } from './summary.js';
 import { getCategoryFilePath } from './util/category.js';
 import { ANSWER_TAG, CATEGORY_CONTENT_TAG, RESPONSE_TAG, SKIP_TAG } from './constants/regex.js';
 import { getCategoriesForQuery, IQueryCategory } from './sampling.js';
+import { MEMORY_EVENTS } from './events.js';
 
 const readCategory = async (categoryName: string): Promise<string> => {
 	return fs.readFile(getCategoryFilePath(categoryName), 'utf-8');
@@ -97,14 +98,16 @@ export const queryMemory = async (query: string): Promise<string> => {
 interface IUpdateCategoryOptions {
 	summary: string;
 	categoryName: string;
+	reason: string;
 	information: string;
 }
 
 const updateCategory = async ({
 								  summary,
 								  categoryName,
+								  reason,
 								  information
-							  }: IUpdateCategoryOptions): Promise<string /*summary*/ | undefined> => {
+							  }: IUpdateCategoryOptions) => {
 	const filePath = getCategoryFilePath(categoryName);
 	const previousCategoryContent = await fs.readFile(filePath, 'utf-8').catch(() => '');
 
@@ -112,7 +115,8 @@ const updateCategory = async ({
 		summary,
 		categoryName,
 		previousCategoryContent,
-		information
+		information,
+		reason
 	});
 
 	const response = await retrieveSampledMessage({
@@ -121,11 +125,13 @@ const updateCategory = async ({
 	});
 
 	if (SKIP_TAG.isMatch(response)) {
+		logInfo(`AI has skipped updating category ${categoryName}`);
 		return undefined;
 	}
 
 	const match = CATEGORY_CONTENT_TAG.matchOne(response);
 	if (!match) {
+		logError(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
 		return undefined;
 	}
 
@@ -137,7 +143,13 @@ const updateCategory = async ({
 
 	await Promise.all([summarizePromise, writeFilePromise]);
 
-	return summarizePromise;
+	const description = await summarizePromise;
+
+	MEMORY_EVENTS.emit('categoryDirty', {
+		name:    categoryName,
+		content: newCategoryContent,
+		description
+	});
 }
 
 export const ingestMemory = async (information: string): Promise<void> => {
@@ -149,21 +161,15 @@ export const ingestMemory = async (information: string): Promise<void> => {
 	});
 
 	if (categories.length === 0) {
+		logError('No categories found for ingestion, skipping.');
 		return;
 	}
 
-	const updatedDescriptions: Record<string /*categoryName*/, string /*summary*/> = {};
-
-	await Promise.all(categories.map(async ({ categoryName }) => updateCategory({
-		categoryName: categoryName,
+	logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
+	await Promise.all(categories.map(({ categoryName, reason }) => updateCategory({
+		categoryName,
 		information,
-		summary
-	}).then(summary => {
-		if (summary) {
-			updatedDescriptions[categoryName] = summary;
-		}
+		summary,
+		reason
 	})));
-
-	const summaryFile = await fs.readFile(SUMMARY_FILE_PATH, 'utf-8');
-	await updateSummary(summaryFile, updatedDescriptions);
 }

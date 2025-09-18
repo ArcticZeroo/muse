@@ -8,17 +8,17 @@ const describeSummary = (summary: string) => summary.trim()
 	: 'No categories exist yet.';
 
 const context = CONTEXT_FILE_PATH
-    ? await fs.readFile(CONTEXT_FILE_PATH, 'utf-8')
-    : '';
+	? await fs.readFile(CONTEXT_FILE_PATH, 'utf-8')
+	: '';
 
 const CONTEXT_PROMPT = context
-    ? `
+	? `
 The user has provided the following common context to help you answer questions and find information:
 <CONTEXT>
 ${context}
 </CONTEXT>
     `.trim()
-    : '';
+	: '';
 
 const MAIN_SYSTEM_PROMPT = `
 You are an expert archivist whose job is to store and retrieve information about a codebase and the user from a vast archive of knowledge. You assist users in finding the information they need, answering questions, and providing insights based on the data available to you.
@@ -67,8 +67,13 @@ interface IGetInformationFromSingleCategoryPromptOptions {
 	reason: string;
 }
 
-export const getInformationFromSingleCategoryPrompt = ({ query, categoryName, content, reason }: IGetInformationFromSingleCategoryPromptOptions) => {
-    return `
+export const getInformationFromSingleCategoryPrompt = ({
+														   query,
+														   categoryName,
+														   content,
+														   reason
+													   }: IGetInformationFromSingleCategoryPromptOptions) => {
+	return `
 ${MAIN_SYSTEM_PROMPT}
 Your current task is to answer a question/find some information based on the information available in the archive.
  
@@ -113,18 +118,20 @@ You should return an <ANSWER> tag containing the final answer to the question, e
 `.trim();
 
 interface IGetUpdateInSingleCategoryPromptOptions {
-    categoryName: string;
-    previousCategoryContent?: string;
-    summary: string;
-    information: string;
+	categoryName: string;
+	previousCategoryContent?: string;
+	summary: string;
+	information: string;
+	reason: string;
 }
 
 export const getUpdateInSingleCategoryPrompt = ({
-                                                    categoryName,
-                                                    previousCategoryContent,
-                                                    summary,
-                                                    information
-                                                }: IGetUpdateInSingleCategoryPromptOptions) => `${MAIN_SYSTEM_PROMPT}
+													categoryName,
+													previousCategoryContent,
+													summary,
+													information,
+													reason
+												}: IGetUpdateInSingleCategoryPromptOptions) => `${MAIN_SYSTEM_PROMPT}
 Your current task is to update a single category with new information. You have to decide which information (if any) is relevant to this category, and which information to discard. If there is relevant information, you can merge the new information with the existing content, or replace it entirely as you choose.
 
 This category is called "${categoryName}". 
@@ -142,6 +149,11 @@ Here is the information that you are given to update the category with:
 <INFORMATION>
 ${information}
 </INFORMATION>
+
+This category was chosen for the following reason. Use this reason to help you determine what parts of the information, if any, are relevant to the category:
+<REASON>
+${reason}
+</REASON>
 
 ${previousCategoryContent ? `Here is the previous version of this category's content: <PREVIOUS_CATEGORY_CONTENT>${previousCategoryContent}</PREVIOUS_CATEGORY_CONTENT>` : 'This is a new category with no existing content. You are creating the entire thing from scratch.'}
 

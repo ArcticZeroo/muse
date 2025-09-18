@@ -2,13 +2,17 @@ import { ifTruthy } from '../util/string.js';
 
 class TagRegexManager {
 	readonly tagName: string;
-    readonly #regex: RegExp;
+    readonly #globalRegex: RegExp;
+	readonly #singleRegex: RegExp;
 	readonly #allowEmpty: boolean;
 
     constructor(tagName: string, allowEmpty: boolean = false) {
 		this. tagName = tagName;
 		this.#allowEmpty = allowEmpty;
-        this.#regex = new RegExp(`<${tagName}>(?<content>[\\s\\S]*?)<\\/${tagName}>${ifTruthy(allowEmpty, `<${tagName}/>`)}`, 'g');
+
+		const regexContent = `<${tagName}>(?<content>[\\s\\S]*?)<\\/${tagName}>${ifTruthy(allowEmpty, `<${tagName}/>`)}`;
+        this.#globalRegex = new RegExp(regexContent, 'g');
+		this.#singleRegex = new RegExp(regexContent);
     }
 
 	#getContentFromMatch(match: RegExpMatchArray | null): string | undefined {
@@ -21,11 +25,12 @@ class TagRegexManager {
 		if (!result && this.#allowEmpty) {
 			return '';
 		}
-		return undefined;
+
+		return result;
 	}
 
     matchOne(value: string): string | undefined {
-        return this.#getContentFromMatch(value.match(this.#regex));
+        return this.#getContentFromMatch(value.match(this.#singleRegex));
     }
 
     matchAll(value: string): string[] {
@@ -37,7 +42,7 @@ class TagRegexManager {
     }
 
     forEach(value: string, callback: (tagValue: string) => void) {
-        const matches = value.matchAll(this.#regex);
+        const matches = value.matchAll(this.#globalRegex);
         for (const match of matches) {
             const group = this.#getContentFromMatch(match);
             if (group != null) {
@@ -47,11 +52,11 @@ class TagRegexManager {
     }
 
 	isMatch(value: string): boolean {
-		return this.#regex.test(value);
+		return this.#globalRegex.test(value);
 	}
 }
 
-export const CATEGORIES_TAG = new TagRegexManager('CATEGORY');
+export const CATEGORY_TAG = new TagRegexManager('CATEGORY');
 export const CATEGORY_NAME_TAG = new TagRegexManager('CATEGORY_NAME');
 export const REASON_TAG = new TagRegexManager('REASON');
 export const SKIP_TAG = new TagRegexManager('SKIP', true /*allowEmpty*/);

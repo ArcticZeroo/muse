@@ -3,6 +3,7 @@ import { hideBin } from 'yargs/helpers';
 import path from 'node:path';
 import { SUMMARY_FILE_NAME, USER_FILE_NAME } from './constants/files.js';
 import fsSync from 'fs';
+import fs from 'node:fs/promises';
 
 const argv = await yargs(hideBin(process.argv))
     // .scriptName('mcp-server')
@@ -34,3 +35,5 @@ export const USER_FILE_PATH = path.join(MEMORY_DIRECTORY, USER_FILE_NAME);
 if (CONTEXT_FILE_PATH && !fsSync.existsSync(CONTEXT_FILE_PATH)) {
     throw new Error(`Context file does not exist: ${CONTEXT_FILE_PATH}`);
 }
+
+await fs.mkdir(MEMORY_DIRECTORY, { recursive: true });

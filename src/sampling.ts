@@ -1,6 +1,6 @@
 import { getCategoriesFromQueryPrompt } from './constants/prompts.js';
-import { CATEGORIES_TAG, CATEGORY_NAME_TAG, REASON_TAG } from './constants/regex.js';
-import { retrieveSampledMessage } from './util/mcp.js';
+import { CATEGORY_TAG, CATEGORY_NAME_TAG, REASON_TAG } from './constants/regex.js';
+import { logDebug, logError, logInfo, retrieveSampledMessage } from './util/mcp.js';
 
 interface IGetCategoriesForQueryOptions {
     summary: string;
@@ -27,11 +27,12 @@ export const getCategoriesForQuery = async ({
 
     const categories: Array<IQueryCategory> = [];
 
-    CATEGORIES_TAG.forEach(response, (categoryContent) => {
+    CATEGORY_TAG.forEach(response, (categoryContent) => {
         const categoryName = CATEGORY_NAME_TAG.matchOne(categoryContent);
         const reason = REASON_TAG.matchOne(categoryContent);
 
         if (!categoryName || !reason) {
+			logError(`Category name: ${categoryName}, reason: ${reason}, full content: ${categoryContent}`);
             throw new Error(`AI generated an invalid category block: ${categoryContent}`);
         }
 
