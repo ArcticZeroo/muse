@@ -5,28 +5,31 @@ import { USER_FILE_NAME } from './constants/files.js';
 import fsSync from 'fs';
 import { logInfo } from './util/mcp.js';
 
+const requiredGitignoreLines = [
+	USER_FILE_NAME
+];
+
 export const ensureGitignore = async () => {
     const gitignorePath = path.join(MEMORY_DIRECTORY, '.gitignore');
 
     if (!fsSync.existsSync(gitignorePath)) {
-        await fs.writeFile(gitignorePath, USER_FILE_NAME, 'utf-8');
+        await fs.writeFile(gitignorePath, requiredGitignoreLines.join('\n'), 'utf-8');
         return;
     }
 
-    logInfo('Gitignore file already exists, skipping creation.');
+	const remainingLines = new Set(requiredGitignoreLines);
+    const handle = await fs.open(gitignorePath, 'r');
+    try {
+        for await (const line of handle.readLines()) {
+			remainingLines.delete(line.trim());
 
-//     const handle = await fs.open(gitignorePath, 'a+');
-//     try {
-//         for await (const line of handle.readLines()) {
-//             if (line.trim() === USER_FILE_NAME) {
-//                 // If the line already exists, we don't need to add it again
-//                 return;
-//             }
-//         }
-//
-//         // If we reach here, the line does not exist, so we append it
-//         await handle.appendFile(`\n${USER_FILE_NAME}\n`);
-//     } finally {
-//         await handle.close();
-//     }
+			if (remainingLines.size === 0) {
+				return;
+			}
+        }
+    } finally {
+        await handle.close();
+    }
+
+	await fs.appendFile(gitignorePath, `\n${Array.from(remainingLines).join('\n')}\n`);
 }

@@ -44,6 +44,10 @@ interface IRetrieveSampledMessageOptions {
 
 // todo: consider ratelimiting?
 export const retrieveSampledMessage = async ({ messages, systemPrompt, maxTokens }: IRetrieveSampledMessageOptions): Promise<string> => {
+	if (!MCP_SERVER.isConnected()) {
+		throw new Error('MCP server is not connected, cannot retrieve sampled message');
+	}
+
     const normalizedMessages = messages.map((message) => {
         if (typeof message === 'string') {
             return {
@@ -63,6 +67,8 @@ export const retrieveSampledMessage = async ({ messages, systemPrompt, maxTokens
             }
         } as const;
     });
+
+	logInfo(`Sending messages to MCP server: ${JSON.stringify(normalizedMessages)}`);
 
     const result = await MCP_SERVER.server.createMessage({
         messages: normalizedMessages,

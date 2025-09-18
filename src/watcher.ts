@@ -1,27 +1,21 @@
 import path from 'node:path';
-import { MEMORY_DIRECTORY } from './args.js';
-import { VERSIONS_FILE_NAME } from './constants/files.js';
+import { MEMORY_DIRECTORY, SUMMARY_FILE_PATH, VERSIONS_FILE_PATH } from './args.js';
 import { FILE_SYSTEM_EVENTS } from './events.js';
-import { logInfo } from './util/mcp.js';
 import chokidar from 'chokidar';
 
 export const watchForChanges = async () => {
-	logInfo('Watching for changes...');
-
 	const watcher = chokidar.watch(MEMORY_DIRECTORY, {
-		ignored: (file, stats) => stats?.isFile() === true && path.basename(file) !== '.gitignore',
 		persistent: false
 	});
 
-	watcher.on('all', (eventType, filename) => {
-		logInfo(`File system event: ${eventType} on ${filename || '<unknown file>'}`);
-
-		if (!filename) {
-			FILE_SYSTEM_EVENTS.emit('unknownFileChanged', eventType);
+	watcher.on('all', (_eventType, filename) => {
+		if (path.resolve(filename) === SUMMARY_FILE_PATH) {
+			// We probably don't care about changes to the summary file, they'll just get overwritten
+			// todo: maybe we should still try to prevent users from editing it directly?
 			return;
 		}
 
-		if (filename === VERSIONS_FILE_NAME) {
+		if (path.resolve(filename) === VERSIONS_FILE_PATH) {
 			FILE_SYSTEM_EVENTS.emit('versionsDirty');
 			return;
 		}

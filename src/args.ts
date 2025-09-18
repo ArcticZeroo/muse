@@ -27,11 +27,11 @@ if (!outDir || typeof outDir !== 'string') {
 }
 
 export const MEMORY_DIRECTORY = outDir;
-export const CONTEXT_FILE_PATH = argv.context;
+export const CONTEXT_FILE_PATH = argv.context ? path.resolve(argv.context) : undefined;
 
-export const SUMMARY_FILE_PATH = path.join(MEMORY_DIRECTORY, SUMMARY_FILE_NAME);
-export const USER_FILE_PATH = path.join(MEMORY_DIRECTORY, USER_FILE_NAME);
-export const VERSIONS_FILE_PATH = path.join(MEMORY_DIRECTORY, VERSIONS_FILE_NAME);
+export const SUMMARY_FILE_PATH = path.resolve(path.join(MEMORY_DIRECTORY, SUMMARY_FILE_NAME));
+export const USER_FILE_PATH = path.resolve(path.join(MEMORY_DIRECTORY, USER_FILE_NAME));
+export const VERSIONS_FILE_PATH = path.resolve(path.join(MEMORY_DIRECTORY, VERSIONS_FILE_NAME));
 
 if (CONTEXT_FILE_PATH && !fsSync.existsSync(CONTEXT_FILE_PATH)) {
     throw new Error(`Context file does not exist: ${CONTEXT_FILE_PATH}`);

@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { SUMMARY_FILE_NAME } from '../constants/files.js';
-import { MEMORY_DIRECTORY } from '../args.js';
+import { MEMORY_DIRECTORY, SUMMARY_FILE_PATH } from '../args.js';
 import { IMemoryNode } from '../models/memory.js';
 
 export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
@@ -22,11 +21,11 @@ export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
 				continue;
 			}
 
-			if (node.name === SUMMARY_FILE_NAME) {
+			const filePath = path.join(nodePath, node.name);
+			if (path.resolve(filePath) === SUMMARY_FILE_PATH) {
 				continue;
 			}
 
-			const filePath = path.join(nodePath, node.name);
 			const baseName = path.basename(node.name, '.md');
 			const categoryName = `${parents.join('/')}/${baseName}`;
 
@@ -35,14 +34,4 @@ export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
 	}
 
 	yield* readNode(MEMORY_DIRECTORY, []);
-}
-
-export const readAllMemory = async (): Promise<Record<string /*categoryName*/, string /*content*/>> => {
-	const memory: Record<string, string> = {};
-
-	for await (const { categoryName, filePath } of findAllMemoryNodes()) {
-		memory[categoryName] = await fs.readFile(filePath, 'utf-8');
-	}
-
-	return memory;
 }
