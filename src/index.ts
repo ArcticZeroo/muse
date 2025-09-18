@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { MCP_SERVER } from './mcp-server.js';
 import { ensureGitignore } from './gitignore.js';

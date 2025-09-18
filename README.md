@@ -25,9 +25,9 @@ In `mcp.json`, this would look like:
   "servers": {
     "muse": {
       "type": "stdio",
-      "command": "node",
+      "command": "npx",
       "args": [
-        "npx",
+        "-y",
         "@arcticzeroo/muse",
         "<memory directory>"
       ]
