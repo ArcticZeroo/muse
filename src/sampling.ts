@@ -7,14 +7,15 @@ interface IGetCategoriesForQueryOptions {
     summary: string;
     query: string;
     isIngestion: boolean;
+    existingOnly?: boolean;
 }
 
 export interface IQueryCategory {
-	categoryName: string;
-	reason: string;
+    categoryName: string;
+    reason: string;
 }
 
-export const parseQueryCategories = (tag: TagRegexManager, response: string): Array<IQueryCategory> => {
+export const parseQueryCategories = (tag: TagRegexManager, response: string, existingOnly: boolean = false): Array<IQueryCategory> => {
     const categories: Array<IQueryCategory> = [];
 
     tag.forEach(response, (categoryContent) => {
@@ -25,7 +26,7 @@ export const parseQueryCategories = (tag: TagRegexManager, response: string): Ar
             throw new Error(`AI generated an invalid category block: ${categoryContent}`);
         }
 
-        if (isCategoryMissing(categoryName)) {
+        if (existingOnly && isCategoryMissing(categoryName)) {
             throw new Error(`AI asked for a category "${categoryName}" which is missing`);
         }
 
@@ -33,19 +34,20 @@ export const parseQueryCategories = (tag: TagRegexManager, response: string): Ar
     });
 
     return categories;
-}
+};
 
 export const getCategoriesForQuery = async ({
-                                         summary,
-                                         query,
-                                         isIngestion
-                                     }: IGetCategoriesForQueryOptions): Promise<Array<IQueryCategory>> => {
+                                                summary,
+                                                query,
+                                                isIngestion,
+                                                existingOnly = false
+                                            }: IGetCategoriesForQueryOptions): Promise<Array<IQueryCategory>> => {
     const prompt = getCategoriesFromQueryPrompt(summary, query, isIngestion);
 
     const response = await retrieveSampledMessage({
-        messages:  [prompt],
+        messages: [prompt],
         maxTokens: 5000
     });
 
-    return parseQueryCategories(CATEGORY_TAG, response);
-}
+    return parseQueryCategories(CATEGORY_TAG, response, existingOnly);
+};

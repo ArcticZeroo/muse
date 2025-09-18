@@ -49,7 +49,7 @@ const queryCategory = async ({ categoryName, reason }: IQueryCategory, query: st
     });
 
     const answer = SKIP_TAG.isMatch(response) ? undefined : ANSWER_TAG.matchOne(response);
-    const references = parseQueryCategories(CATEGORY_REFERENCE_TAG, response);
+    const references = parseQueryCategories(CATEGORY_REFERENCE_TAG, response, true /*existingOnly*/);
     return { answer, references };
 }
 
@@ -145,7 +145,8 @@ export const queryMemory = async (query: string): Promise<string> => {
 	const categories = await getCategoriesForQuery({
 		query,
 		summary,
-		isIngestion: false
+		isIngestion: false,
+        existingOnly: true
 	});
 
 	if (categories.length === 0) {
