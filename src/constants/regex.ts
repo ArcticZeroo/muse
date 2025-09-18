@@ -65,4 +65,4 @@ export const ANSWER_TAG = new TagRegexManager('ANSWER');
 export const DESCRIPTION_TAG = new TagRegexManager('DESCRIPTION');
 export const CATEGORY_REFERENCE_TAG = new TagRegexManager('CATEGORY_REFERENCE');
 
-export const CATEGORY_NAME_REGEX = /^([\w_-]+\/)*[\w_-]+$/;
+export const CATEGORY_NAME_REGEX = /^([\w-]+\/)*[\w-]+$/;

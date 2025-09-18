@@ -57,7 +57,7 @@ ${describeSummary(summary)}
 
 ${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a <CATEGORY_NAME></CATEGORY_NAME> tag, and a <REASON></REASON> tag explaining why you chose that category. 
 The reason will be used in the next step to determine what information to retrieve/store in that category, so be as specific as possible. For example, if the information is about a specific function or class, mention that in the reason. If the information is about a specific feature, mention that in the reason. If the information is about a specific programming language, mention that in the reason.
-${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group with existing categories where it makes sense. New categories must match /[\\w_-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
+${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group with existing categories where it makes sense. New categories must match /[\\w-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
 `.trim();
 
 interface IGetInformationFromSingleCategoryPromptOptions {
