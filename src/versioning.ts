@@ -14,6 +14,7 @@ import { logError, logInfo } from './util/mcp.js';
 import { MaybePromise } from './models/async.js';
 import { watchForChanges } from './watcher.js';
 import path from 'node:path';
+import { buildCategoryTree, serializeCategoryTree } from './util/tree.js';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
@@ -120,7 +121,7 @@ const updateVersionsFromDiskAsync = async (shouldLogLoad: boolean = false) => {
 		}
 
 		if (shouldLogLoad) {
-			logInfo(`Loaded ${versions.size} categories from disk: ${Array.from(versions.keys()).join(', ')}`);
+			logInfo(`Loaded ${versions.size} categories from disk\n${serializeCategoryTree(buildCategoryTree(Object.keys(versionsFromDisk)))}`);
 		}
 	});
 }
