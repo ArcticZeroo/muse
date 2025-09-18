@@ -2,10 +2,9 @@ import EventEmitter from 'node:events';
 import TypedEventEmitter from './models/typed-emitter.js';
 import { EventName } from 'chokidar/handler.js';
 
-interface ICategoryDirtyEvent {
+export interface ICategoryDirtyEvent {
 	name: string;
 	content: string;
-	description: string;
 }
 
 type MemoryEvents = {

@@ -6,13 +6,14 @@ import z from 'zod';
 import { SUMMARY_FILE_PATH, VERSIONS_FILE_PATH } from './args.js';
 import { USER_CATEGORY_NAME } from './constants/files.js';
 import { Debouncer } from './debouncer.js';
-import { FILE_SYSTEM_EVENTS, MEMORY_EVENTS } from './events.js';
-import { serializeSummaryFromVersions, summarizeCategory } from './summary.js';
+import { FILE_SYSTEM_EVENTS, ICategoryDirtyEvent, MEMORY_EVENTS } from './events.js';
+import { serializeSummaryFromVersions, retrieveCategoryDescriptionAsync } from './summary.js';
 import { getCategoryFilePath, getCategoryNameFromFilePath } from './util/category.js';
 import { LockedResource } from './util/lock.js';
 import { logError, logInfo } from './util/mcp.js';
 import { MaybePromise } from './models/async.js';
 import { watchForChanges } from './watcher.js';
+import path from 'node:path';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
@@ -148,7 +149,7 @@ const updateDirtyCategory = async (versions: Map<string, VersionEntry>, category
 		logInfo(`Category "${categoryName}" has changed, updating description`);
 		versions.set(categoryName, {
 			contentHash,
-			description: await summarizeCategory(categoryName, fileContents)
+			description: await retrieveCategoryDescriptionAsync(categoryName, fileContents)
 		});
 	}
 }
@@ -197,6 +198,25 @@ export const startVersioningWatcher = async () => {
 		.catch(err => logError(`Failed to watch for file changes: ${err}`));
 }
 
+const onCategoryDirty = async ({ name, content }: ICategoryDirtyEvent) => {
+    logInfo(`Category "${name}" marked dirty by memory system`);
+
+    const hash = hashContent(content);
+    const description = await retrieveCategoryDescriptionAsync(name, content);
+
+    const filepath = getCategoryFilePath(name);
+
+    await useVersionCache(async (versions) => {
+        versions.set(name, {
+            contentHash: hash,
+            description
+        });
+
+        await fs.mkdir(path.dirname(filepath), { recursive: true });
+        await fs.writeFile(filepath, content, 'utf-8');
+    });
+}
+
 FILE_SYSTEM_EVENTS.on('categoryDirty', (filename) => {
 	const categoryName = getCategoryNameFromFilePath(filename);
 	FILESYSTEM_DIRTY_CATEGORY_NAMES.add(categoryName);
@@ -211,14 +231,7 @@ FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
 		.catch(err => console.error('Could not update versions from disk:', err));
 });
 
-MEMORY_EVENTS.on('categoryDirty', ({ name, description, content }) => {
-	logInfo(`Category "${name}" marked dirty by memory system`);
-
-	const hash = hashContent(content);
-	useVersionCache((versions) => {
-		versions.set(name, {
-			contentHash: hash,
-			description
-		});
-	}).catch(err => console.error('Failed to update summary after category is marked dirty:', err));
+MEMORY_EVENTS.on('categoryDirty', (event) => {
+    onCategoryDirty(event)
+        .catch(err => logError(`Failed to handle category dirty event for "${event.name}": ${err}`));
 });

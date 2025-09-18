@@ -1,6 +1,6 @@
 import { ifTruthy } from '../util/string.js';
 
-class TagRegexManager {
+export class TagRegexManager {
 	readonly tagName: string;
     readonly #globalRegex: RegExp;
 	readonly #singleRegex: RegExp;
@@ -61,7 +61,8 @@ export const CATEGORY_NAME_TAG = new TagRegexManager('CATEGORY_NAME');
 export const REASON_TAG = new TagRegexManager('REASON');
 export const SKIP_TAG = new TagRegexManager('SKIP', true /*allowEmpty*/);
 export const CATEGORY_CONTENT_TAG = new TagRegexManager('CATEGORY_CONTENT');
-export const RESPONSE_TAG = new TagRegexManager('RESPONSE');
 export const ANSWER_TAG = new TagRegexManager('ANSWER');
+export const DESCRIPTION_TAG = new TagRegexManager('DESCRIPTION');
+export const CATEGORY_REFERENCE_TAG = new TagRegexManager('CATEGORY_REFERENCE');
 
 export const CATEGORY_NAME_REGEX = /^([\w_-]+\/)*[\w_-]+$/;

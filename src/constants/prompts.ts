@@ -92,8 +92,13 @@ ${reason}
 
 Use this reason to help you determine what information, if any, is relevant to the query.
 
-You will return a <RESPONSE> tag containing the answer to the question, e.g. <RESPONSE>answer in here</RESPONSE>. It is ok if you only have a partial answer to the question - we will look at other categories too.
-If this category doesn't answer anything, return a <SKIP> tag instead of a <RESPONSE> tag, e.g. <SKIP>information not found</SKIP>.
+You will return an <ANSWER> tag containing the answer to the question, e.g. <ANSWER>answer in here</ANSWER>. It is ok if you only have a partial answer to the question - we will look at other categories too.
+If this category doesn't answer anything, return a <SKIP> tag instead of an <ANSWER> tag, e.g. <SKIP>information not found</SKIP>.
+
+If this archive directly references other category names that you think would help answer the question, you may optionally also return any number of <CATEGORY_REFERENCE> tags containing the category name in <CATEGORY_NAME> and the reason why you think it is relevant in <REASON>.
+For example, <CATEGORY_REFERENCE><CATEGORY_NAME>name</CATEGORY_NAME><REASON>Category my_cool_feature references this category for more information about some_other_feature</REASON></CATEGORY_REFERENCE>. These should be outside the <ANSWER> tag. 
+Do not return category references unless the category is explicitly mentioned in this archive. 
+Category references may be returned even if you are returning a <SKIP> tag.
 `.trim();
 };
 

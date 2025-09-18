@@ -1,8 +1,7 @@
 import { getCategoryDescriptionPrompt } from './constants/prompts.js';
 import { retrieveSampledMessage } from './util/mcp.js';
 import { readVersions, VersionEntry } from './versioning.js';
-
-const DESCRIPTION_REGEX = /<DESCRIPTION>(?<description>[\s\S]*?)<\/DESCRIPTION>/;
+import { DESCRIPTION_TAG } from './constants/regex.js';
 
 export const serializeSummaryFromVersions = (versions: Map<string /*categoryName*/, VersionEntry>): string => {
 	const entriesInOrder = Object.entries(versions)
@@ -20,7 +19,7 @@ export const getSummary = async (): Promise<string> => {
 	return serializeSummaryFromVersions(await readVersions());
 }
 
-export const summarizeCategory = async (categoryName: string, content: string): Promise<string> => {
+export const retrieveCategoryDescriptionAsync = async (categoryName: string, content: string): Promise<string> => {
 	const prompt = getCategoryDescriptionPrompt(categoryName, content);
 
 	const response = await retrieveSampledMessage({
@@ -28,10 +27,10 @@ export const summarizeCategory = async (categoryName: string, content: string): 
 		maxTokens: 2000
 	});
 
-	const description = response.match(DESCRIPTION_REGEX)?.groups?.description;
+	const description = DESCRIPTION_TAG.matchOne(response);
 	if (!description) {
 		throw new Error('Unable to generate description.');
 	}
 
-	return description.trim();
+	return description;
 };

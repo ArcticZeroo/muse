@@ -68,8 +68,6 @@ export const retrieveSampledMessage = async ({ messages, systemPrompt, maxTokens
         } as const;
     });
 
-	logInfo(`Sending messages to MCP server: ${JSON.stringify(normalizedMessages)}`);
-
     const result = await MCP_SERVER.server.createMessage({
         messages: normalizedMessages,
         maxTokens,
@@ -80,7 +78,6 @@ export const retrieveSampledMessage = async ({ messages, systemPrompt, maxTokens
         throw new Error('Expected text content from MCP sampling');
     }
 
-	logInfo(result.content.text);
     return result.content.text;
 };
 
