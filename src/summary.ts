@@ -4,9 +4,9 @@ import { readVersions, VersionEntry } from './versioning.js';
 import { DESCRIPTION_TAG } from './constants/regex.js';
 
 export const serializeSummaryFromVersions = (versions: Map<string /*categoryName*/, VersionEntry>): string => {
-	const entriesInOrder = Object.entries(versions)
+	const entriesInOrder = Array.from(versions.entries())
 		// TS won't let me destructure in the parameters of the filter function for some reason
-		.sort((a, b) => a[0].localeCompare(b[0]));
+		.sort(([a], [b]) => a.localeCompare(b));
 	return entriesInOrder.flatMap(([key, { description }]) => {
 		return [
 			`### ${key}`,
