@@ -11,6 +11,7 @@ import { ANSWER_TAG, CATEGORY_CONTENT_TAG, CATEGORY_REFERENCE_TAG, SKIP_TAG } fr
 import { getCategoriesForQuery, IQueryCategory, parseQueryCategories } from './sampling.js';
 import { MEMORY_EVENTS } from './events.js';
 import { throwError } from './util/error.js';
+import { trackSpan } from './util/perf.js';
 
 const NO_MEMORY_RESPONSE = 'No relevant memory found for the query. Go search the codebase and once you\'re done, ingest your findings into memory for next time.';
 
@@ -136,24 +137,24 @@ const queryMultipleCategories = async (categories: Array<IQueryCategory>, query:
 }
 
 export const queryMemory = async (query: string): Promise<string> => {
-	const summary = await getSummary();
+	const summary = await trackSpan('queryMemory getSummary', getSummary);
 
 	if (!summary.trim()) {
 		return NO_MEMORY_RESPONSE;
 	}
 
-	const categories = await getCategoriesForQuery({
-		query,
-		summary,
-		isIngestion: false,
+	const categories = await trackSpan('queryMemory getCategoriesForQuery', () => getCategoriesForQuery({
+        query,
+        summary,
+        isIngestion: false,
         existingOnly: true
-	});
+    }));
 
 	if (categories.length === 0) {
 		return NO_MEMORY_RESPONSE;
 	}
 
-	const categoryResponses = await queryMultipleCategories(categories, query);
+	const categoryResponses = await trackSpan('queryMemory getting category responses', () => queryMultipleCategories(categories, query));
 	const keys = Object.keys(categoryResponses);
 
 	if (keys.length === 0) {
@@ -164,7 +165,7 @@ export const queryMemory = async (query: string): Promise<string> => {
 		return categoryResponses[keys[0]]!;
 	}
 
-	return summarizeQueryResponse(query, categoryResponses);
+	return trackSpan('queryMemory summarize response', () => summarizeQueryResponse(query, categoryResponses));
 }
 
 interface IIngestCategoryUpdateOptions {
@@ -214,12 +215,13 @@ const ingestCategoryUpdate = async ({
 }
 
 export const ingestMemory = async (information: string): Promise<void> => {
-	const summary = await getSummary();
-	const categories = await getCategoriesForQuery({
+	const summary = await trackSpan('ingestion getSummary', getSummary);
+
+	const categories = await trackSpan('ingestion getCategoriesForQuery', () => getCategoriesForQuery({
 		summary,
 		query:       information,
 		isIngestion: true
-	});
+	}));
 
 	if (categories.length === 0) {
 		logError('No categories found for ingestion, skipping.');
@@ -227,10 +229,10 @@ export const ingestMemory = async (information: string): Promise<void> => {
 	}
 
 	logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
-	await Promise.all(categories.map(({ categoryName, reason }) => ingestCategoryUpdate({
-		categoryName,
-		information,
-		summary,
-		reason
-	})));
+	await Promise.all(categories.map(({ categoryName, reason }) => trackSpan(`ingest category update "${categoryName}"`, () => ingestCategoryUpdate({
+        categoryName,
+        information,
+        summary,
+        reason
+    }))));
 }

@@ -10,11 +10,12 @@ import { FILE_SYSTEM_EVENTS, ICategoryDirtyEvent, MEMORY_EVENTS } from './events
 import { retrieveCategoryDescriptionAsync, serializeSummaryFromVersions } from './summary.js';
 import { getCategoryFilePath, getCategoryNameFromFilePath, isCategoryMissing } from './util/category.js';
 import { LockedResource } from './util/lock.js';
-import { logError, logInfo } from './util/mcp.js';
+import { logError, logInfo, logWarn } from './util/mcp.js';
 import { MaybePromise } from './models/async.js';
 import { watchForChanges } from './watcher.js';
 import path from 'node:path';
 import { buildCategoryTree, serializeCategoryTree } from './util/tree.js';
+import { trackSpan } from './util/perf.js';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
@@ -59,7 +60,14 @@ const useVersionCache = (() => {
 	const cache = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
 
 	return async (work: (resource: VersionMap) => MaybePromise<void>) => {
+        const lockRequestStartTime = performance.now();
+
 		await cache.use(async (resource) => {
+            const elapsedTime = performance.now() - lockRequestStartTime;
+            if (elapsedTime > 1000) {
+                logWarn(`Getting version cache lock took ${elapsedTime.toFixed(2)}ms`);
+            }
+
 			const beforeWork = new Map();
 			for (const [key, value] of resource) {
 				beforeWork.set(key, { ...value });
@@ -156,18 +164,22 @@ const updateDirtyCategoriesAsync = async () => {
 		return;
 	}
 
+    if (FILESYSTEM_DIRTY_CATEGORY_NAMES.size > 1) {
+        logInfo(`Updating ${FILESYSTEM_DIRTY_CATEGORY_NAMES.size} dirty categories from disk`);
+    }
+
 	const dirtyNames = Array.from(FILESYSTEM_DIRTY_CATEGORY_NAMES);
 
 	await useVersionCache(async versions => {
-		for (const dirtyCategoryName of dirtyNames) {
-			await updateDirtyCategory(versions, dirtyCategoryName);
-			FILESYSTEM_DIRTY_CATEGORY_NAMES.delete(dirtyCategoryName);
-		}
+        await Promise.all(dirtyNames.map(async (dirtyCategoryName) => {
+            await updateDirtyCategory(versions, dirtyCategoryName);
+            FILESYSTEM_DIRTY_CATEGORY_NAMES.delete(dirtyCategoryName);
+        }));
 	});
 }
 
 const updateDirtyCategories = () => {
-	updateDirtyCategoriesAsync()
+	trackSpan('updating dirty categories', updateDirtyCategoriesAsync)
 		.catch(err => console.error('Failed to update dirty categories:', err));
 }
 
@@ -224,11 +236,11 @@ FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
 	// If we were about to update dirty categories, wait until we've updated versions from disk
 	CATEGORY_DEBOUNCER.poke();
 
-	updateVersionsFromDiskAsync()
-		.catch(err => console.error('Could not update versions from disk:', err));
+    trackSpan('update versions from disk', updateVersionsFromDiskAsync)
+        .catch(err => console.error('Could not update versions from disk:', err));
 });
 
 MEMORY_EVENTS.on('categoryDirty', (event) => {
-    onCategoryDirty(event)
+    trackSpan(`category dirty: ${event.name}`, () => onCategoryDirty(event))
         .catch(err => logError(`Failed to handle category dirty event for "${event.name}": ${err}`));
 });
