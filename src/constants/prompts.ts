@@ -26,7 +26,7 @@ interface IGetUpdateInSingleCategoryPromptOptions {
     reason: string;
 }
 
-class PromptManager {
+export class PromptManager {
     readonly #config: IMemoryConfig;
     #contextLastRetrievedTime: number = 0;
     #context: string = '';

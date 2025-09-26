@@ -2,7 +2,6 @@ import { getCategoryDescriptionPrompt } from './constants/prompts.js';
 import { retrieveSampledMessage } from './util/mcp.js';
 import { VersionEntry } from './versioning.js';
 import { DESCRIPTION_TAG } from './constants/regex.js';
-import { MemorySession } from './session.js';
 
 export const serializeSummaryFromVersions = (versions: Map<string /*categoryName*/, VersionEntry>): string => {
 	const entriesInOrder = Array.from(versions.entries())

@@ -5,15 +5,16 @@ import { SUMMARY_FILE_NAME, USER_FILE_NAME, VERSIONS_FILE_NAME } from './constan
 import TypedEventEmitter from './models/typed-emitter.js';
 import { FileSystemEvents, MemoryEvents } from './events.js';
 import EventEmitter from 'node:events';
-import { getCategoryFilePath, getCategoryNameFromFilePath } from './util/category.js';
-import { trackSpan } from './util/perf.js';
-import { logError } from './util/mcp.js';
+import { getCategoryFilePath } from './util/category.js';
 import { VersionManager } from './versioning.js';
 import { IMemoryConfig } from './models/session.js';
 import { serializeSummaryFromVersions } from './summary.js';
 import { ensureGitignore } from './gitignore.js';
+import { PromptManager } from './constants/prompts.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 interface ICreateMemorySessionOptions {
+    server: McpServer;
     memoryDirectory: string;
     contextFilePath?: string;
 }
@@ -25,7 +26,7 @@ interface IConstructMemorySessionOptions {
     versionManager: VersionManager;
 }
 
-const createConfigAsync = async (memoryDirectory: string, contextFilePath?: string): Promise<IMemoryConfig> => {
+const createConfigAsync = async (server: McpServer, memoryDirectory: string, contextFilePath?: string): Promise<IMemoryConfig> => {
     if (!memoryDirectory) {
         throw new Error('Memory directory must be non-empty');
     }
@@ -47,6 +48,7 @@ const createConfigAsync = async (memoryDirectory: string, contextFilePath?: stri
     const versionsFilePath = path.resolve(memoryDirectory, VERSIONS_FILE_NAME);
 
     return {
+        server,
         memoryDirectory,
         contextFilePath,
         summaryFilePath,
@@ -60,22 +62,26 @@ export class MemorySession {
     readonly #memoryEvents: TypedEventEmitter<MemoryEvents>;
     readonly #fileSystemEvents: TypedEventEmitter<FileSystemEvents>;
     readonly #versionManager: VersionManager;
+    readonly #prompts: PromptManager;
 
     private constructor({ config, memoryEvents, fileSystemEvents, versionManager }: IConstructMemorySessionOptions) {
         this.#config = config;
         this.#memoryEvents = memoryEvents;
         this.#fileSystemEvents = fileSystemEvents;
         this.#versionManager = versionManager;
+        this.#prompts = new PromptManager(config);
     }
 
     static async createAsync({
+                                 server,
                                  memoryDirectory,
                                  contextFilePath
                              }: ICreateMemorySessionOptions): Promise<MemorySession> {
-        const config = await createConfigAsync(memoryDirectory, contextFilePath);
+        const config = await createConfigAsync(server, memoryDirectory, contextFilePath);
 
         const memoryEvents = new EventEmitter() as TypedEventEmitter<MemoryEvents>;
         const fileSystemEvents = new EventEmitter() as TypedEventEmitter<FileSystemEvents>;
+
         const versionManager = await VersionManager.createAsync(config, fileSystemEvents, memoryEvents);
 
         await ensureGitignore(config);
