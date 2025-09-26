@@ -1,10 +1,5 @@
 import fs from 'node:fs/promises';
-import {
-    getInformationFromSingleCategoryPrompt,
-    getSummarizeInformationFromManyCategoriesPrompt,
-    getUpdateInSingleCategoryPrompt
-} from './constants/prompts.js';
-import { logError, logInfo, retrieveSampledMessage } from './util/mcp.js';
+import { retrieveSampledMessage } from './util/mcp.js';
 import { getCategoryFilePath } from './util/category.js';
 import { ANSWER_TAG, CATEGORY_CONTENT_TAG, CATEGORY_REFERENCE_TAG, SKIP_TAG } from './constants/regex.js';
 import { getCategoriesForQuery, IQueryCategory, parseQueryCategories } from './sampling.js';
@@ -14,10 +9,11 @@ import { MemorySession } from './session.js';
 
 const NO_MEMORY_RESPONSE = 'No relevant memory found for the query. Go search the codebase and once you\'re done, ingest your findings into memory for next time.';
 
-const summarizeQueryResponse = async (query: string, responses: Record<string /*categoryName*/, string /*response*/>): Promise<string> => {
-    const prompt = getSummarizeInformationFromManyCategoriesPrompt(query, responses);
+const summarizeQueryResponse = async (session: MemorySession, query: string, responses: Record<string /*categoryName*/, string /*response*/>): Promise<string> => {
+    const prompt = await session.prompts.getSummarizeInformationFromManyCategoriesPrompt(query, responses);
 
     const response = await retrieveSampledMessage({
+        mcpServer: session.config.server,
         messages: [prompt],
         maxTokens: 50_000
     });
@@ -35,7 +31,7 @@ const queryCategory = async (session: MemorySession, {
     reason
 }: IQueryCategory, query: string): Promise<IQueryCategoryResult> => {
     const categoryContent = await session.readCategoryFile(categoryName);
-    const prompt = getInformationFromSingleCategoryPrompt({
+    const prompt = await session.prompts.getInformationFromSingleCategoryPrompt({
         query,
         categoryName,
         reason,
@@ -43,6 +39,7 @@ const queryCategory = async (session: MemorySession, {
     });
 
     const response = await retrieveSampledMessage({
+        mcpServer: session.config.server,
         messages: [prompt],
         maxTokens: 5_000
     });
@@ -96,7 +93,7 @@ class CategoryQueryManager {
                 this.#resolve();
             }
         } catch (error) {
-            logError(`Error querying category (inner) ${category.categoryName}: ${error}`);
+            this.#session.logger.logError(`Error querying category (inner) ${category.categoryName}: ${error}`);
             this.#reject(error);
             return;
         }
@@ -117,7 +114,7 @@ class CategoryQueryManager {
         }
 
         this.#queryCategory(category)
-            .catch(err => logError(`Error querying category (outer) ${category.categoryName}: ${err}`));
+            .catch(err => this.#session.logger.logError(`Error querying category (outer) ${category.categoryName}: ${err}`));
     }
 
     async getResults() {
@@ -166,7 +163,7 @@ export const queryMemory = async (session: MemorySession, query: string): Promis
         return categoryResponses[keys[0]]!;
     }
 
-    return trackSpan('queryMemory summarize response', () => summarizeQueryResponse(query, categoryResponses));
+    return trackSpan('queryMemory summarize response', () => summarizeQueryResponse(session, query, categoryResponses));
 };
 
 interface IIngestCategoryUpdateOptions {
@@ -187,7 +184,7 @@ const ingestCategoryUpdate = async ({
     const filePath = getCategoryFilePath(session.config, categoryName);
     const previousCategoryContent = await fs.readFile(filePath, 'utf-8').catch(() => '');
 
-    const prompt = getUpdateInSingleCategoryPrompt({
+    const prompt = await session.prompts.getUpdateInSingleCategoryPrompt({
         summary,
         categoryName,
         previousCategoryContent,
@@ -196,18 +193,19 @@ const ingestCategoryUpdate = async ({
     });
 
     const response = await retrieveSampledMessage({
+        mcpServer: session.config.server,
         messages: [prompt],
         maxTokens: 50_000
     });
 
     if (SKIP_TAG.isMatch(response)) {
-        logInfo(`AI has skipped updating category ${categoryName}`);
+        session.logger.logInfo(`AI has skipped updating category ${categoryName}`);
         return undefined;
     }
 
     const newCategoryContent = CATEGORY_CONTENT_TAG.matchOne(response);
     if (!newCategoryContent) {
-        logError(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
+        session.logger.logError(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
         return undefined;
     }
 
@@ -228,11 +226,11 @@ export const ingestMemory = async (session: MemorySession, information: string):
     }));
 
     if (categories.length === 0) {
-        logError('No categories found for ingestion, skipping.');
+        session.logger.logError('No categories found for ingestion, skipping.');
         return;
     }
 
-    logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
+    session.logger.logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
     await Promise.all(categories.map(({
                                           categoryName,
                                           reason

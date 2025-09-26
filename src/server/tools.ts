@@ -1,13 +1,13 @@
 import { MCP_SERVER } from './mcp-server.js';
 import { z } from 'zod';
-import { ingestMemory, queryMemory } from './memory.js';
-import { createToolResults } from './util/mcp.js';
+import { ingestMemory, queryMemory } from '../lib/memory.js';
+import { createToolResults } from '../lib/util/mcp.js';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
-import { getCategoryFilePath } from './util/category.js';
-import { findAllMemoryNodes } from './util/filesystem.js';
-import { CATEGORY_NAME_REGEX } from './constants/regex.js';
-import { MemorySession } from './session.js';
+import { getCategoryFilePath } from '../lib/util/category.js';
+import { findAllMemoryNodes } from '../lib/util/filesystem.js';
+import { CATEGORY_NAME_REGEX } from '../lib/constants/regex.js';
+import { MemorySession } from '../lib/session.js';
 
 export const registerTools = (session: MemorySession) => {
     MCP_SERVER.registerTool(

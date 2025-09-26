@@ -12,6 +12,7 @@ import { serializeSummaryFromVersions } from './summary.js';
 import { ensureGitignore } from './gitignore.js';
 import { PromptManager } from './constants/prompts.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpLogger } from './util/mcp.js';
 
 interface ICreateMemorySessionOptions {
     server: McpServer;
@@ -63,6 +64,7 @@ export class MemorySession {
     readonly #fileSystemEvents: TypedEventEmitter<FileSystemEvents>;
     readonly #versionManager: VersionManager;
     readonly #prompts: PromptManager;
+    readonly #logger: McpLogger;
 
     private constructor({ config, memoryEvents, fileSystemEvents, versionManager }: IConstructMemorySessionOptions) {
         this.#config = config;
@@ -70,6 +72,7 @@ export class MemorySession {
         this.#fileSystemEvents = fileSystemEvents;
         this.#versionManager = versionManager;
         this.#prompts = new PromptManager(config);
+        this.#logger = new McpLogger(config.server);
     }
 
     static async createAsync({
@@ -94,6 +97,10 @@ export class MemorySession {
         });
     }
 
+    get logger(): McpLogger {
+        return this.#logger;
+    }
+
     get config(): Readonly<IMemoryConfig> {
         return this.#config;
     }
@@ -108,6 +115,10 @@ export class MemorySession {
 
     get versionManager(): VersionManager {
         return this.#versionManager;
+    }
+
+    get prompts(): PromptManager {
+        return this.#prompts;
     }
 
     async getSummary(): Promise<string> {
