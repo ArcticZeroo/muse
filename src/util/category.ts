@@ -1,7 +1,7 @@
 import { USER_CATEGORY_NAME, USER_FILE_NAME } from '../constants/files.js';
 import path from 'node:path';
-import { MEMORY_DIRECTORY } from '../args.js';
 import fsSync from 'node:fs';
+import { IMemoryConfig } from '../models/session.js';
 
 const getCategoryParts = (categoryName: string): string[] => {
 	return categoryName === USER_CATEGORY_NAME
@@ -9,14 +9,14 @@ const getCategoryParts = (categoryName: string): string[] => {
 		: categoryName.split('/');
 }
 
-export const getCategoryFilePath = (categoryName: string): string => {
+export const getCategoryFilePath = (config: IMemoryConfig, categoryName: string): string => {
 	const categoryParts = getCategoryParts(categoryName);
-	const fileBaseName = path.join(MEMORY_DIRECTORY, ...categoryParts);
+	const fileBaseName = path.join(config.memoryDirectory, ...categoryParts);
 	return `${fileBaseName}.md`;
 }
 
-export const getCategoryNameFromFilePath = (filePath: string): string => {
-	const relativePath = path.relative(MEMORY_DIRECTORY, filePath);
+export const getCategoryNameFromFilePath = (config: IMemoryConfig, filePath: string): string => {
+	const relativePath = path.relative(config.memoryDirectory, filePath);
 
 	if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
 		throw new Error(`File path is outside of memory directory: ${filePath}`);
@@ -36,6 +36,6 @@ export const getCategoryNameFromFilePath = (filePath: string): string => {
 	return parts.join('/');
 }
 
-export const isCategoryMissing = (categoryName: string): boolean => {
-    return categoryName !== USER_CATEGORY_NAME && !fsSync.existsSync(getCategoryFilePath(categoryName));
+export const isCategoryMissing = (config: IMemoryConfig, categoryName: string): boolean => {
+    return categoryName !== USER_CATEGORY_NAME && !fsSync.existsSync(getCategoryFilePath(config, categoryName));
 };

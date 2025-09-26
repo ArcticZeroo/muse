@@ -2,13 +2,19 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { MCP_SERVER } from './mcp-server.js';
-import { ensureGitignore } from './gitignore.js';
-import { startVersioningWatcher } from './versioning.js';
 import './tools.js';
+import { MemorySession } from './session.js';
+import { parseMuseArgs } from './args.js';
+import { registerTools } from './tools.js';
+
+const args = await parseMuseArgs();
 
 const transport = new StdioServerTransport();
 await MCP_SERVER.connect(transport);
 
-await startVersioningWatcher();
+const session = await MemorySession.createAsync({
+    memoryDirectory: args.outputDirectory,
+    contextFilePath: args.contextFilePath
+});
 
-await ensureGitignore();
+registerTools(session);

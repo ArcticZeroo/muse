@@ -1,7 +1,8 @@
 import { getCategoryDescriptionPrompt } from './constants/prompts.js';
 import { retrieveSampledMessage } from './util/mcp.js';
-import { readVersions, VersionEntry } from './versioning.js';
+import { VersionEntry } from './versioning.js';
 import { DESCRIPTION_TAG } from './constants/regex.js';
+import { MemorySession } from './session.js';
 
 export const serializeSummaryFromVersions = (versions: Map<string /*categoryName*/, VersionEntry>): string => {
 	const entriesInOrder = Array.from(versions.entries())
@@ -13,10 +14,6 @@ export const serializeSummaryFromVersions = (versions: Map<string /*categoryName
 			`${description}`
 		].join('\n');
 	}).join('\n\n');
-}
-
-export const getSummary = async (): Promise<string> => {
-	return serializeSummaryFromVersions(await readVersions());
 }
 
 export const retrieveCategoryDescriptionAsync = async (categoryName: string, content: string): Promise<string> => {

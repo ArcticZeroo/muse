@@ -1,37 +1,82 @@
-import { CONTEXT_FILE_PATH } from '../args.js';
 import fs from 'node:fs/promises';
 import { USER_CATEGORY_NAME } from './files.js';
 import { ifTruthy } from '../util/string.js';
+import { IMemoryConfig } from '../models/session.js';
 
 const describeSummary = (summary: string) => summary.trim()
-	? summary
-	: 'No categories exist yet.';
+    ? summary
+    : 'No categories exist yet.';
 
-const context = CONTEXT_FILE_PATH
-	? await fs.readFile(CONTEXT_FILE_PATH, 'utf-8')
-	: '';
+const CONTEXT_REFRESH_INTERVAL_MS = 1000 * 60; // 1 minute
 
-const CONTEXT_PROMPT = context
-	? `
+const SUMMARY_DESCRIPTION_EXPLANATION = `The description should be concise and informative, summarizing the purpose and contents of the category. It will be included in the main summary file so that you can easily determine when to (and when not to) use this category for data retrieval/storage. This description can contain links to other categories, but should not contain any information that is not already in the category content. The description may also contain specific instructions on when it is important to use this category, or when it is not appropriate to use this category.`;
+
+interface IGetInformationFromSingleCategoryPromptOptions {
+    query: string;
+    categoryName: string;
+    content: string;
+    reason: string;
+}
+
+interface IGetUpdateInSingleCategoryPromptOptions {
+    categoryName: string;
+    previousCategoryContent?: string;
+    summary: string;
+    information: string;
+    reason: string;
+}
+
+class PromptManager {
+    readonly #config: IMemoryConfig;
+    #contextLastRetrievedTime: number = 0;
+    #context: string = '';
+
+    constructor(config: IMemoryConfig) {
+        this.#config = config;
+    }
+
+    async #readContext() {
+        if (!this.#config.contextFilePath) {
+            return undefined;
+        }
+
+        const timeSinceLastRead = Date.now() - this.#contextLastRetrievedTime;
+        if (timeSinceLastRead >= CONTEXT_REFRESH_INTERVAL_MS) {
+            this.#contextLastRetrievedTime = Date.now();
+            this.#context = await fs.readFile(this.#config.contextFilePath, 'utf-8');
+        }
+
+        return this.#context;
+    }
+
+    async #getContextPrompt(): Promise<string> {
+        const context = await this.#readContext();
+        if (!context) {
+            return '';
+        }
+
+        return `
 The user has provided the following common context to help you answer questions and find information:
 <CONTEXT>
 ${context}
 </CONTEXT>
-    `.trim()
-	: '';
+        `.trim();
+    }
 
-const MAIN_SYSTEM_PROMPT = `
+    async #getSystemPrompt(): Promise<string> {
+        const contextPrompt = await this.#getContextPrompt();
+        return `
 You are an expert archivist whose job is to store and retrieve information about a codebase and the user from a vast archive of knowledge. You assist users in finding the information they need, answering questions, and providing insights based on the data available to you.
 Information is separated into categories and stored as markdown. These categories may be separated by feature, programming language, or other factors. Categories can be nested, e.g. languages/cpp, feature/networking or feature/networking/HTTP. Each category has its own file, and the content of these files is updated as new information is added.
 There is a main "summary" file which contains an overall listing of categories. The special ${USER_CATEGORY_NAME} category contains information about the user, such as their preferences, interests, and other relevant details.
 
-${CONTEXT_PROMPT}
+${contextPrompt}
 `.trim();
+    }
 
-const SUMMARY_DESCRIPTION_EXPLANATION = `The description should be concise and informative, summarizing the purpose and contents of the category. It will be included in the main summary file so that you can easily determine when to (and when not to) use this category for data retrieval/storage. This description can contain links to other categories, but should not contain any information that is not already in the category content. The description may also contain specific instructions on when it is important to use this category, or when it is not appropriate to use this category.`;
-
-export const getCategoryDescriptionPrompt = (categoryName: string, content: string) => `
-${MAIN_SYSTEM_PROMPT}
+    async getCategoryDescriptionPrompt(categoryName: string, content: string) {
+        return `
+${await this.#getSystemPrompt()}
 Your current task is to produce a description for a category based on the content provided.
 ${SUMMARY_DESCRIPTION_EXPLANATION}
 
@@ -41,8 +86,11 @@ You should return a <DESCRIPTION> tag containing the description, e.g. <DESCRIPT
 ${content}
 </CONTENT>
 `.trim();
+    }
 
-export const getCategoriesFromQueryPrompt = (summary: string, information: string, isIngestion: boolean) => `${MAIN_SYSTEM_PROMPT}
+    async getCategoriesFromQueryPrompt(summary: string, information: string, isIngestion: boolean) {
+        return `
+${await this.#getSystemPrompt()}
 Your current task is to identify the categories that this information belongs to for lookup and storage. 
 
 Here is the information:
@@ -59,22 +107,16 @@ ${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categorie
 The reason will be used in the next step to determine what information to retrieve/store in that category, so be as specific as possible. For example, if the information is about a specific function or class, mention that in the reason. If the information is about a specific feature, mention that in the reason. If the information is about a specific programming language, mention that in the reason.
 ${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group with existing categories where it makes sense. New categories must match /[\\w-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
 `.trim();
+    }
 
-interface IGetInformationFromSingleCategoryPromptOptions {
-	query: string;
-	categoryName: string;
-	content: string;
-	reason: string;
-}
-
-export const getInformationFromSingleCategoryPrompt = ({
-														   query,
-														   categoryName,
-														   content,
-														   reason
-													   }: IGetInformationFromSingleCategoryPromptOptions) => {
-	return `
-${MAIN_SYSTEM_PROMPT}
+    async getInformationFromSingleCategoryPrompt({
+                                                     query,
+                                                     categoryName,
+                                                     content,
+                                                     reason
+                                                 }: IGetInformationFromSingleCategoryPromptOptions) {
+        return `
+${await this.#getSystemPrompt()}
 Your current task is to answer a question/find some information based on the information available in the archive.
  
 <QUERY>
@@ -100,10 +142,11 @@ For example, <CATEGORY_REFERENCE><CATEGORY_NAME>name</CATEGORY_NAME><REASON>Cate
 Do not return category references unless the category is explicitly mentioned in this archive. 
 Category references may be returned even if you are returning a <SKIP> tag.
 `.trim();
-};
+    }
 
-export const getSummarizeInformationFromManyCategoriesPrompt = (query: string, categories: Record<string /*categoryName*/, string /*content*/>) => `
-${MAIN_SYSTEM_PROMPT}
+    async getSummarizeInformationFromManyCategoriesPrompt(query: string, categories: Record<string /*categoryName*/, string /*content*/>) {
+        return `
+${await this.#getSystemPrompt()}
 Your current task is to answer a question/find some information based on the information available in the archive.
 We have already retrieved partial answers from the categories that are most relevant to the question, and now we need to summarize the information from these categories.
 
@@ -121,22 +164,18 @@ ${content}
 
 You should return an <ANSWER> tag containing the final answer to the question, e.g. <ANSWER>final answer in here</ANSWER>. It is OK if you only have a partial answer, just answer the parts that you have information about. Don't make anything up.
 `.trim();
+    }
 
-interface IGetUpdateInSingleCategoryPromptOptions {
-	categoryName: string;
-	previousCategoryContent?: string;
-	summary: string;
-	information: string;
-	reason: string;
-}
 
-export const getUpdateInSingleCategoryPrompt = ({
-													categoryName,
-													previousCategoryContent,
-													summary,
-													information,
-													reason
-												}: IGetUpdateInSingleCategoryPromptOptions) => `${MAIN_SYSTEM_PROMPT}
+    async getUpdateInSingleCategoryPrompt({
+                                              categoryName,
+                                              previousCategoryContent,
+                                              summary,
+                                              information,
+                                              reason
+                                          }: IGetUpdateInSingleCategoryPromptOptions) {
+        return `
+${await this.#getSystemPrompt()}
 Your current task is to update a single category with new information. You have to decide which information (if any) is relevant to this category, and which information to discard. If there is relevant information, you can merge the new information with the existing content, or replace it entirely as you choose.
 
 This category is called "${categoryName}". 
@@ -165,8 +204,11 @@ ${previousCategoryContent ? `Here is the previous version of this category's con
 If the information is not relevant to this category, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
 Otherwise, return a <CATEGORY_CONTENT> tag containing the new category content, e.g. <CATEGORY_CONTENT>new category content in here</CATEGORY_CONTENT>, and a <DIFF_SUMMARY> tag containing a summary of the changes made, e.g. <DIFF_SUMMARY>summary of changes in here</DIFF_SUMMARY>
 `.trim();
+    }
 
-export const getUpdateSummaryPrompt = (previousSummary: string, information: Record<string /*categoryName*/, string /*changeInfo*/>) => `${MAIN_SYSTEM_PROMPT}
+    async getUpdateSummaryPrompt(previousSummary: string, information: Record<string /*categoryName*/, string /*changeInfo*/>) {
+        return `
+${await this.#getSystemPrompt()}
 Your task is to update the summary based on new information. Some category/categories have updated, and their new descriptions will be given. You can merge descriptions or replace entirely as you choose.
 ${SUMMARY_DESCRIPTION_EXPLANATION}
 Return an UPDATED_SUMMARY element with file contents inside, e.g. <UPDATED_SUMMARY>updated file contents in here</UPDATED_SUMMARY>
@@ -184,6 +226,5 @@ ${changeInfo}
 `)}
 </CATEGORY_UPDATES>
 `.trim();
-
-// const SUMMARY_CONSISTENCY_HEADER = `${MAIN_SYSTEM_PROMPT}
-// Your current task is to ensure that the main summary file is consistent with the information in the categories`;
+    }
+}

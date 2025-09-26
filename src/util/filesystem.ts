@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { MEMORY_DIRECTORY, SUMMARY_FILE_PATH } from '../args.js';
 import { IMemoryNode } from '../models/memory.js';
+import { IMemoryConfig } from '../models/session.js';
 
-export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
+export async function* findAllMemoryNodes(config: IMemoryConfig): AsyncGenerator<IMemoryNode> {
 	async function* readNode(nodePath: string, parents: string[] = []): AsyncGenerator<IMemoryNode> {
 		const files = await fs.readdir(nodePath, { withFileTypes: true });
 
@@ -22,7 +22,7 @@ export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
 			}
 
 			const filePath = path.join(nodePath, node.name);
-			if (path.resolve(filePath) === SUMMARY_FILE_PATH) {
+			if (path.resolve(filePath) === config.summaryFilePath) {
 				continue;
 			}
 
@@ -33,5 +33,5 @@ export async function* findAllMemoryNodes(): AsyncGenerator<IMemoryNode> {
 		}
 	}
 
-	yield* readNode(MEMORY_DIRECTORY, []);
+	yield* readNode(config.memoryDirectory, []);
 }

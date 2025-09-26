@@ -5,38 +5,36 @@ import {
     getUpdateInSingleCategoryPrompt
 } from './constants/prompts.js';
 import { logError, logInfo, retrieveSampledMessage } from './util/mcp.js';
-import { getSummary } from './summary.js';
 import { getCategoryFilePath } from './util/category.js';
 import { ANSWER_TAG, CATEGORY_CONTENT_TAG, CATEGORY_REFERENCE_TAG, SKIP_TAG } from './constants/regex.js';
 import { getCategoriesForQuery, IQueryCategory, parseQueryCategories } from './sampling.js';
-import { MEMORY_EVENTS } from './events.js';
 import { throwError } from './util/error.js';
 import { trackSpan } from './util/perf.js';
+import { MemorySession } from './session.js';
 
 const NO_MEMORY_RESPONSE = 'No relevant memory found for the query. Go search the codebase and once you\'re done, ingest your findings into memory for next time.';
 
-const readCategory = async (categoryName: string): Promise<string> => {
-	return fs.readFile(getCategoryFilePath(categoryName), 'utf-8');
-}
-
 const summarizeQueryResponse = async (query: string, responses: Record<string /*categoryName*/, string /*response*/>): Promise<string> => {
-	const prompt = getSummarizeInformationFromManyCategoriesPrompt(query, responses);
+    const prompt = getSummarizeInformationFromManyCategoriesPrompt(query, responses);
 
-	const response = await retrieveSampledMessage({
-		messages:  [prompt],
-		maxTokens: 50_000
-	});
+    const response = await retrieveSampledMessage({
+        messages: [prompt],
+        maxTokens: 50_000
+    });
 
-	return ANSWER_TAG.matchOne(response) ?? throwError('Failed to parse answer from the response');
-}
+    return ANSWER_TAG.matchOne(response) ?? throwError('Failed to parse answer from the response');
+};
 
 interface IQueryCategoryResult {
     answer: string | undefined;
     references: Array<IQueryCategory>;
 }
 
-const queryCategory = async ({ categoryName, reason }: IQueryCategory, query: string): Promise<IQueryCategoryResult> => {
-    const categoryContent = await readCategory(categoryName);
+const queryCategory = async (session: MemorySession, {
+    categoryName,
+    reason
+}: IQueryCategory, query: string): Promise<IQueryCategoryResult> => {
+    const categoryContent = await session.readCategoryFile(categoryName);
     const prompt = getInformationFromSingleCategoryPrompt({
         query,
         categoryName,
@@ -45,16 +43,17 @@ const queryCategory = async ({ categoryName, reason }: IQueryCategory, query: st
     });
 
     const response = await retrieveSampledMessage({
-        messages:  [prompt],
+        messages: [prompt],
         maxTokens: 5_000
     });
 
     const answer = SKIP_TAG.isMatch(response) ? undefined : ANSWER_TAG.matchOne(response);
-    const references = parseQueryCategories(CATEGORY_REFERENCE_TAG, response, true /*existingOnly*/);
+    const references = parseQueryCategories(session.config, CATEGORY_REFERENCE_TAG, response, true /*existingOnly*/);
     return { answer, references };
-}
+};
 
 class CategoryQueryManager {
+    readonly #session: MemorySession;
     readonly #query: string;
     readonly #results = new Map<string /*categoryName*/, string /*response*/>();
     readonly #registeredCategories: Set<string> = new Set();
@@ -63,7 +62,8 @@ class CategoryQueryManager {
     #resolveAllQueriesDonePromise: (() => void) | undefined = undefined;
     #rejectAllQueriesDonePromise: ((error: unknown) => void) | undefined = undefined;
 
-    constructor(query: string) {
+    constructor(session: MemorySession, query: string) {
+        this.#session = session;
         this.#query = query;
     }
 
@@ -81,7 +81,7 @@ class CategoryQueryManager {
 
     async #queryCategory(category: IQueryCategory) {
         try {
-            const result = await queryCategory(category, this.#query);
+            const result = await queryCategory(this.#session, category, this.#query);
 
             for (const reference of result.references) {
                 this.addCategory(reference);
@@ -126,113 +126,121 @@ class CategoryQueryManager {
     }
 }
 
-const queryMultipleCategories = async (categories: Array<IQueryCategory>, query: string): Promise<Record<string /*categoryName*/, string /*response*/>> => {
-    const manager = new CategoryQueryManager(query);
+const queryMultipleCategories = async (session: MemorySession, categories: Array<IQueryCategory>, query: string): Promise<Record<string /*categoryName*/, string /*response*/>> => {
+    const manager = new CategoryQueryManager(session, query);
 
     for (const category of categories) {
         manager.addCategory(category);
     }
 
     return Object.fromEntries(await manager.getResults());
-}
+};
 
-export const queryMemory = async (query: string): Promise<string> => {
-	const summary = await trackSpan('queryMemory getSummary', getSummary);
+export const queryMemory = async (session: MemorySession, query: string): Promise<string> => {
+    const summary = await trackSpan('queryMemory getSummary', () => session.getSummary());
 
-	if (!summary.trim()) {
-		return NO_MEMORY_RESPONSE;
-	}
+    if (!summary.trim()) {
+        return NO_MEMORY_RESPONSE;
+    }
 
-	const categories = await trackSpan('queryMemory getCategoriesForQuery', () => getCategoriesForQuery({
+    const categories = await trackSpan('queryMemory getCategoriesForQuery', () => getCategoriesForQuery({
         query,
         summary,
+        config: session.config,
         isIngestion: false,
         existingOnly: true
     }));
 
-	if (categories.length === 0) {
-		return NO_MEMORY_RESPONSE;
-	}
+    if (categories.length === 0) {
+        return NO_MEMORY_RESPONSE;
+    }
 
-	const categoryResponses = await trackSpan('queryMemory getting category responses', () => queryMultipleCategories(categories, query));
-	const keys = Object.keys(categoryResponses);
+    const categoryResponses = await trackSpan('queryMemory getting category responses', () => queryMultipleCategories(session, categories, query));
+    const keys = Object.keys(categoryResponses);
 
-	if (keys.length === 0) {
-		return NO_MEMORY_RESPONSE;
-	}
+    if (keys.length === 0) {
+        return NO_MEMORY_RESPONSE;
+    }
 
-	if (keys.length === 1) {
-		return categoryResponses[keys[0]]!;
-	}
+    if (keys.length === 1) {
+        return categoryResponses[keys[0]]!;
+    }
 
-	return trackSpan('queryMemory summarize response', () => summarizeQueryResponse(query, categoryResponses));
-}
+    return trackSpan('queryMemory summarize response', () => summarizeQueryResponse(query, categoryResponses));
+};
 
 interface IIngestCategoryUpdateOptions {
-	summary: string;
-	categoryName: string;
-	reason: string;
-	information: string;
+    session: MemorySession,
+    summary: string;
+    categoryName: string;
+    reason: string;
+    information: string;
 }
 
 const ingestCategoryUpdate = async ({
-								  summary,
-								  categoryName,
-								  reason,
-								  information
-							  }: IIngestCategoryUpdateOptions) => {
-	const filePath = getCategoryFilePath(categoryName);
-	const previousCategoryContent = await fs.readFile(filePath, 'utf-8').catch(() => '');
+                                        session,
+                                        summary,
+                                        categoryName,
+                                        reason,
+                                        information
+                                    }: IIngestCategoryUpdateOptions) => {
+    const filePath = getCategoryFilePath(session.config, categoryName);
+    const previousCategoryContent = await fs.readFile(filePath, 'utf-8').catch(() => '');
 
-	const prompt = getUpdateInSingleCategoryPrompt({
-		summary,
-		categoryName,
-		previousCategoryContent,
-		information,
-		reason
-	});
+    const prompt = getUpdateInSingleCategoryPrompt({
+        summary,
+        categoryName,
+        previousCategoryContent,
+        information,
+        reason
+    });
 
-	const response = await retrieveSampledMessage({
-		messages:  [prompt],
-		maxTokens: 50_000
-	});
+    const response = await retrieveSampledMessage({
+        messages: [prompt],
+        maxTokens: 50_000
+    });
 
-	if (SKIP_TAG.isMatch(response)) {
-		logInfo(`AI has skipped updating category ${categoryName}`);
-		return undefined;
-	}
+    if (SKIP_TAG.isMatch(response)) {
+        logInfo(`AI has skipped updating category ${categoryName}`);
+        return undefined;
+    }
 
-	const newCategoryContent = CATEGORY_CONTENT_TAG.matchOne(response);
-	if (!newCategoryContent) {
-		logError(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
-		return undefined;
-	}
+    const newCategoryContent = CATEGORY_CONTENT_TAG.matchOne(response);
+    if (!newCategoryContent) {
+        logError(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
+        return undefined;
+    }
 
-	MEMORY_EVENTS.emit('categoryDirty', {
-		name:    categoryName,
-		content: newCategoryContent,
-	});
-}
+    session.memoryEvents.emit('categoryDirty', {
+        name: categoryName,
+        content: newCategoryContent,
+    });
+};
 
-export const ingestMemory = async (information: string): Promise<void> => {
-	const summary = await trackSpan('ingestion getSummary', getSummary);
+export const ingestMemory = async (session: MemorySession, information: string): Promise<void> => {
+    const summary = await trackSpan('ingestion getSummary', () => session.getSummary());
 
-	const categories = await trackSpan('ingestion getCategoriesForQuery', () => getCategoriesForQuery({
-		summary,
-		query:       information,
-		isIngestion: true
-	}));
+    const categories = await trackSpan('ingestion getCategoriesForQuery', () => getCategoriesForQuery({
+        summary,
+        config: session.config,
+        query: information,
+        isIngestion: true
+    }));
 
-	if (categories.length === 0) {
-		logError('No categories found for ingestion, skipping.');
-		return;
-	}
+    if (categories.length === 0) {
+        logError('No categories found for ingestion, skipping.');
+        return;
+    }
 
-	logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
-	await Promise.all(categories.map(({ categoryName, reason }) => trackSpan(`ingest category update "${categoryName}"`, () => ingestCategoryUpdate({
+    logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
+    await Promise.all(categories.map(({
+                                          categoryName,
+                                          reason
+                                      }) => trackSpan(`ingest category update "${categoryName}"`, () => ingestCategoryUpdate({
+        session,
         categoryName,
         information,
         summary,
         reason
     }))));
-}
+};

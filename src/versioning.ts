@@ -3,19 +3,20 @@ import crypto from 'node:crypto';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import z from 'zod';
-import { SUMMARY_FILE_PATH, VERSIONS_FILE_PATH } from './args.js';
 import { USER_CATEGORY_NAME } from './constants/files.js';
 import { Debouncer } from './debouncer.js';
-import { FILE_SYSTEM_EVENTS, ICategoryDirtyEvent, MEMORY_EVENTS } from './events.js';
+import { FileSystemEvents, ICategoryDirtyEvent, MemoryEvents } from './events.js';
 import { retrieveCategoryDescriptionAsync, serializeSummaryFromVersions } from './summary.js';
 import { getCategoryFilePath, getCategoryNameFromFilePath, isCategoryMissing } from './util/category.js';
 import { LockedResource } from './util/lock.js';
 import { logError, logInfo, logWarn } from './util/mcp.js';
 import { MaybePromise } from './models/async.js';
-import { watchForChanges } from './watcher.js';
 import path from 'node:path';
 import { buildCategoryTree, serializeCategoryTree } from './util/tree.js';
 import { trackSpan } from './util/perf.js';
+import TypedEventEmitter from './models/typed-emitter.js';
+import chokidar from 'chokidar';
+import { IMemoryConfig } from './models/session.js';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
@@ -56,53 +57,6 @@ const isSameVersionMap = (a: VersionMap, b: VersionMap) => {
 	return true;
 }
 
-const useVersionCache = (() => {
-	const cache = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
-
-	return async (work: (resource: VersionMap) => MaybePromise<void>) => {
-        const lockRequestStartTime = performance.now();
-
-		await cache.use(async (resource) => {
-            const elapsedTime = performance.now() - lockRequestStartTime;
-            if (elapsedTime > 1000) {
-                logWarn(`Getting version cache lock took ${elapsedTime.toFixed(2)}ms`);
-            }
-
-			const beforeWork = new Map();
-			for (const [key, value] of resource) {
-				beforeWork.set(key, { ...value });
-			}
-
-			await work(resource);
-
-			ensureCategories(resource);
-
-			if (!isSameVersionMap(beforeWork, resource)) {
-				await updateSummaryFile(resource);
-			}
-		});
-	};
-})();
-
-const CATEGORY_DEBOUNCER = new Debouncer(250 /*settlingTimeMs*/);
-const FILESYSTEM_DIRTY_CATEGORY_NAMES = new Set<string>();
-
-const getVersionsFromDisk = async (): Promise<VersionRecord> => {
-	if (!fsSync.existsSync(VERSIONS_FILE_PATH)) {
-		logInfo('Versions file does not exist yet');
-		return {};
-	}
-
-	const fileContents = await fs.readFile(VERSIONS_FILE_PATH, 'utf-8');
-	try {
-		const result = jsonc.parse(fileContents);
-		return  VERSION_FILE_SCHEMA.parse(result);
-	} catch (err) {
-		logError(`Failed to parse versions file, returning empty object: ${err}`);
-		return {};
-	}
-}
-
 const ensureCategories = (versions: Map<string, VersionEntry>) => {
 	if (!versions.has(USER_CATEGORY_NAME)) {
 		versions.set(USER_CATEGORY_NAME, {
@@ -115,132 +69,221 @@ const ensureCategories = (versions: Map<string, VersionEntry>) => {
 	versions.delete('summary');
 }
 
-const updateVersionsFromDiskAsync = async (shouldLogLoad: boolean = false) => {
-	await useVersionCache(async (versions) => {
-		const versionsFromDisk = await getVersionsFromDisk();
-		versions.clear();
-		for (const [categoryName, entry] of Object.entries(versionsFromDisk)) {
-			if (isCategoryMissing(categoryName)) {
-				logInfo(`Category file for "${categoryName}" no longer exists, removing from versions`);
-				continue;
-			}
-
-			versions.set(categoryName, entry);
-		}
-
-		if (shouldLogLoad) {
-			logInfo(`Loaded ${versions.size} categories from disk\n${serializeCategoryTree(buildCategoryTree(Object.keys(versionsFromDisk)))}`);
-		}
-	});
-}
-
 const hashContent = (content: string) => {
 	return crypto.createHash('sha256').update(content, 'utf-8').digest('hex');
 }
 
-const updateDirtyCategory = async (versions: Map<string, VersionEntry>, categoryName: string) => {
-	const filepath = getCategoryFilePath(categoryName);
+export class VersionManager {
+    readonly #config: IMemoryConfig;
+    readonly #fileSystemEvents: TypedEventEmitter<FileSystemEvents>;
+    readonly #memoryEvents: TypedEventEmitter<MemoryEvents>;
+    readonly #useVersionCache = this.#getUseVersionCacheCallback();
+    readonly #categoryDebouncer = new Debouncer(250 /*settlingTimeMs*/);
+    readonly #fileSystemDirtyCategoryNames = new Set<string>();
 
-	if (isCategoryMissing(categoryName)) {
-		logInfo(`Category file for "${categoryName}" no longer exists, removing from versions`);
-		versions.delete(categoryName);
-		return;
-	}
-
-	const fileContents = await fs.readFile(filepath, 'utf-8');
-	const contentHash = hashContent(fileContents);
-	const existingEntry = versions.get(categoryName);
-	if (existingEntry?.contentHash !== contentHash) {
-		logInfo(`Category "${categoryName}" has changed, updating description`);
-		versions.set(categoryName, {
-			contentHash,
-			description: await retrieveCategoryDescriptionAsync(categoryName, fileContents)
-		});
-	}
-}
-
-const updateDirtyCategoriesAsync = async () => {
-	if (FILESYSTEM_DIRTY_CATEGORY_NAMES.size === 0) {
-		return;
-	}
-
-    if (FILESYSTEM_DIRTY_CATEGORY_NAMES.size > 1) {
-        logInfo(`Updating ${FILESYSTEM_DIRTY_CATEGORY_NAMES.size} dirty categories from disk`);
+    private constructor(config: IMemoryConfig, fileSystemEvents: TypedEventEmitter<FileSystemEvents>, memoryEvents: TypedEventEmitter<MemoryEvents>) {
+        this.#config = config;
+        this.#fileSystemEvents = fileSystemEvents;
+        this.#memoryEvents = memoryEvents;
+        this.#startWatcher();
+        this.#listenToEvents();
     }
 
-	const dirtyNames = Array.from(FILESYSTEM_DIRTY_CATEGORY_NAMES);
+    static async createAsync(config: IMemoryConfig, fileSystemEvents: TypedEventEmitter<FileSystemEvents>, memoryEvents: TypedEventEmitter<MemoryEvents>): Promise<VersionManager> {
+        const manager = new VersionManager(config, fileSystemEvents, memoryEvents);
+        await manager.#updateVersionsFromDiskAsync(true /*shouldLogLoad*/);
+        return manager;
+    }
 
-	await useVersionCache(async versions => {
-        await Promise.all(dirtyNames.map(async (dirtyCategoryName) => {
-            await updateDirtyCategory(versions, dirtyCategoryName);
-            FILESYSTEM_DIRTY_CATEGORY_NAMES.delete(dirtyCategoryName);
-        }));
-	});
-}
+    #getUseVersionCacheCallback() {
+        const cache = new LockedResource(new Map<string /*categoryName*/, VersionEntry>());
 
-const updateDirtyCategories = () => {
-	trackSpan('updating dirty categories', updateDirtyCategoriesAsync)
-		.catch(err => console.error('Failed to update dirty categories:', err));
-}
+        return async (work: (resource: VersionMap) => MaybePromise<void>) => {
+            const lockRequestStartTime = performance.now();
 
-const updateSummaryFile = async (versions: VersionMap) => {
-	logInfo(`Updating summary file after versions map change`);
+            await cache.use(async (resource) => {
+                const elapsedTime = performance.now() - lockRequestStartTime;
+                if (elapsedTime > 1000) {
+                    logWarn(`Getting version cache lock took ${elapsedTime.toFixed(2)}ms`);
+                }
 
-	const jsonContents = JSON.stringify(Object.fromEntries(versions), null, '\t');
-	await Promise.all([
-		fs.writeFile(VERSIONS_FILE_PATH, `${VERSIONS_FILE_HEADER}\n${jsonContents}`, 'utf-8'),
-		fs.writeFile(SUMMARY_FILE_PATH, serializeSummaryFromVersions(versions), 'utf-8')
-	]);
-}
+                const beforeWork = new Map();
+                for (const [key, value] of resource) {
+                    beforeWork.set(key, { ...value });
+                }
 
-export const readVersions = async (): Promise<VersionMap> => {
-	return new Promise((resolve, reject) => {
-		useVersionCache(versions => {
-			resolve(new Map(versions));
-		}).catch(reject);
-	});
-}
+                await work(resource);
 
-export const startVersioningWatcher = async () => {
-	await updateVersionsFromDiskAsync(true /*shouldLogLoad*/);
-	watchForChanges()
-		.catch(err => logError(`Failed to watch for file changes: ${err}`));
-}
+                ensureCategories(resource);
 
-const onCategoryDirty = async ({ name, content }: ICategoryDirtyEvent) => {
-    logInfo(`Category "${name}" marked dirty by memory system`);
+                if (!isSameVersionMap(beforeWork, resource)) {
+                    await this.#updateSummaryFile(resource);
+                }
+            });
+        };
+    };
 
-    const hash = hashContent(content);
-    const description = await retrieveCategoryDescriptionAsync(name, content);
-
-    const filepath = getCategoryFilePath(name);
-
-    await useVersionCache(async (versions) => {
-        versions.set(name, {
-            contentHash: hash,
-            description
+    #startWatcher() {
+        const watcher = chokidar.watch(this.#config.memoryDirectory, {
+            persistent: false
         });
 
-        await fs.mkdir(path.dirname(filepath), { recursive: true });
-        await fs.writeFile(filepath, content, 'utf-8');
-    });
+        watcher.on('all', (_eventType, filename) => {
+            if (path.resolve(filename) === this.#config.summaryFilePath) {
+                // We probably don't care about changes to the summary file, they'll just get overwritten
+                // todo: maybe we should still try to prevent users from editing it directly?
+                return;
+            }
+
+            if (path.resolve(filename) === this.#config.versionsFilePath) {
+                this.#fileSystemEvents.emit('versionsDirty');
+                return;
+            }
+
+            if (path.extname(filename) !== '.md') {
+                return;
+            }
+
+            // Added, removed, changed all fall into the same bucket of "dirty"
+            this.#fileSystemEvents.emit('categoryDirty', filename);
+        });
+    }
+
+    async #onCategoryDirty({ name, content }: ICategoryDirtyEvent) {
+        logInfo(`Category "${name}" marked dirty by memory system`);
+
+        const hash = hashContent(content);
+        const description = await retrieveCategoryDescriptionAsync(name, content);
+
+        const filepath = getCategoryFilePath(this.#config, name);
+
+        await this.#useVersionCache(async (versions) => {
+            versions.set(name, {
+                contentHash: hash,
+                description
+            });
+
+            await fs.mkdir(path.dirname(filepath), { recursive: true });
+            await fs.writeFile(filepath, content, 'utf-8');
+        });
+    }
+
+    async #updateVersionsFromDiskAsync(shouldLogLoad: boolean = false) {
+        await this.#useVersionCache(async (versions) => {
+            const versionsFromDisk = await this.#getVersionsFromDisk();
+            versions.clear();
+            for (const [categoryName, entry] of Object.entries(versionsFromDisk)) {
+                if (isCategoryMissing(this.#config, categoryName)) {
+                    logInfo(`Category file for "${categoryName}" no longer exists, removing from versions`);
+                    continue;
+                }
+
+                versions.set(categoryName, entry);
+            }
+
+            if (shouldLogLoad) {
+                logInfo(`Loaded ${versions.size} categories from disk\n${serializeCategoryTree(buildCategoryTree(Object.keys(versionsFromDisk)))}`);
+            }
+        });
+    }
+
+    async #getVersionsFromDisk(): Promise<VersionRecord> {
+        if (!fsSync.existsSync(this.#config.versionsFilePath)) {
+            logInfo('Versions file does not exist yet');
+            return {};
+        }
+
+        const fileContents = await fs.readFile(this.#config.versionsFilePath, 'utf-8');
+        try {
+            const result = jsonc.parse(fileContents);
+            return  VERSION_FILE_SCHEMA.parse(result);
+        } catch (err) {
+            logError(`Failed to parse versions file, returning empty object: ${err}`);
+            return {};
+        }
+    }
+
+    async #updateDirtyCategoriesAsync(){
+        if (this.#fileSystemDirtyCategoryNames.size === 0) {
+            return;
+        }
+
+        if (this.#fileSystemDirtyCategoryNames.size > 1) {
+            logInfo(`Updating ${this.#fileSystemDirtyCategoryNames.size} dirty categories from disk`);
+        }
+
+        const dirtyNames = Array.from(this.#fileSystemDirtyCategoryNames);
+
+        await this.#useVersionCache(async versions => {
+            await Promise.all(dirtyNames.map(async (dirtyCategoryName) => {
+                await this.#updateDirtyCategory(versions, dirtyCategoryName);
+                this.#fileSystemDirtyCategoryNames.delete(dirtyCategoryName);
+            }));
+        });
+    }
+
+    #updateDirtyCategories() {
+        trackSpan('updating dirty categories', () => this.#updateDirtyCategoriesAsync())
+            .catch(err => console.error('Failed to update dirty categories:', err));
+    }
+
+    async #updateSummaryFile(versions: VersionMap) {
+        logInfo(`Updating summary file after versions map change`);
+
+        const jsonContents = JSON.stringify(Object.fromEntries(versions), null, '\t');
+        await Promise.all([
+            fs.writeFile(this.#config.versionsFilePath, `${VERSIONS_FILE_HEADER}\n${jsonContents}`, 'utf-8'),
+            fs.writeFile(this.#config.summaryFilePath, serializeSummaryFromVersions(versions), 'utf-8')
+        ]);
+    }
+
+    async #updateDirtyCategory(versions: Map<string, VersionEntry>, categoryName: string) {
+        const filepath = getCategoryFilePath(this.#config, categoryName);
+
+        if (isCategoryMissing(this.#config, categoryName)) {
+            logInfo(`Category file for "${categoryName}" no longer exists, removing from versions`);
+            versions.delete(categoryName);
+            return;
+        }
+
+        const fileContents = await fs.readFile(filepath, 'utf-8');
+        const contentHash = hashContent(fileContents);
+        const existingEntry = versions.get(categoryName);
+        if (existingEntry?.contentHash !== contentHash) {
+            logInfo(`Category "${categoryName}" has changed, updating description`);
+            versions.set(categoryName, {
+                contentHash,
+                description: await retrieveCategoryDescriptionAsync(categoryName, fileContents)
+            });
+        }
+    }
+
+    async readVersions(): Promise<VersionMap> {
+        return new Promise((resolve, reject) => {
+            this.#useVersionCache(versions => {
+                resolve(new Map(versions));
+            }).catch(reject);
+        });
+    }
+
+    #listenToEvents() {
+        this.#fileSystemEvents.on('categoryDirty', (filename) => {
+            const categoryName = getCategoryNameFromFilePath(this.#config, filename);
+            this.#fileSystemDirtyCategoryNames.add(categoryName);
+            this.#categoryDebouncer.trigger(() => this.#updateDirtyCategories());
+        });
+
+        this.#fileSystemEvents.on('versionsDirty', () => {
+            // If we were about to update dirty categories, wait until we've updated versions from disk
+            this.#categoryDebouncer.poke();
+
+            trackSpan('update versions from disk', () => this.#updateVersionsFromDiskAsync())
+                .catch(err => console.error('Could not update versions from disk:', err));
+        });
+
+        this.#memoryEvents.on('categoryDirty', (event) => {
+            trackSpan(`category dirty: ${event.name}`, () => this.#onCategoryDirty(event))
+                .catch(err => logError(`Failed to handle category dirty event for "${event.name}": ${err}`));
+        });
+    }
 }
-
-FILE_SYSTEM_EVENTS.on('categoryDirty', (filename) => {
-	const categoryName = getCategoryNameFromFilePath(filename);
-	FILESYSTEM_DIRTY_CATEGORY_NAMES.add(categoryName);
-	CATEGORY_DEBOUNCER.trigger(updateDirtyCategories);
-});
-
-FILE_SYSTEM_EVENTS.on('versionsDirty', () => {
-	// If we were about to update dirty categories, wait until we've updated versions from disk
-	CATEGORY_DEBOUNCER.poke();
-
-    trackSpan('update versions from disk', updateVersionsFromDiskAsync)
-        .catch(err => console.error('Could not update versions from disk:', err));
-});
-
-MEMORY_EVENTS.on('categoryDirty', (event) => {
-    trackSpan(`category dirty: ${event.name}`, () => onCategoryDirty(event))
-        .catch(err => logError(`Failed to handle category dirty event for "${event.name}": ${err}`));
-});

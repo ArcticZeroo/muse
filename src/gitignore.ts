@@ -1,15 +1,15 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { MEMORY_DIRECTORY } from './args.js';
 import { USER_FILE_NAME } from './constants/files.js';
 import fsSync from 'fs';
+import { IMemoryConfig } from './models/session.js';
 
 const requiredGitignoreLines = [
 	USER_FILE_NAME
 ];
 
-export const ensureGitignore = async () => {
-    const gitignorePath = path.join(MEMORY_DIRECTORY, '.gitignore');
+export const ensureGitignore = async (config: IMemoryConfig) => {
+    const gitignorePath = path.join(config.memoryDirectory, '.gitignore');
 
     if (!fsSync.existsSync(gitignorePath)) {
         await fs.writeFile(gitignorePath, requiredGitignoreLines.join('\n'), 'utf-8');
