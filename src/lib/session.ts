@@ -71,8 +71,7 @@ export class MemorySession {
         this.#fileSystemEvents = fileSystemEvents;
         this.#prompts = new PromptManager(config);
         this.#logger = new McpLogger(config.server);
-
-        this.#versionManager = VersionManager.createAsync()
+        this.#versionManager = new VersionManager(this);
     }
 
     static async createAsync({
