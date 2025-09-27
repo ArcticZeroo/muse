@@ -22,19 +22,19 @@ export class McpLogger {
         }).catch(err => console.error('Failed to send log message to MCP server:', err));
     }
 
-    logInfo(message: string) {
+    info(message: string) {
         this.#log(message, 'info', console.log);
     }
 
-    logError(message: string) {
+    error(message: string) {
         this.#log(message, 'error', console.error);
     }
 
-    logDebug(message: string) {
+    debug(message: string) {
         this.#log(message, 'debug', console.debug);
     }
 
-    logWarn(message: string) {
+    warn(message: string) {
         this.#log(message, 'warning', console.warn);
     }
 }

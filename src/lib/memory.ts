@@ -4,7 +4,6 @@ import { getCategoryFilePath } from './util/category.js';
 import { ANSWER_TAG, CATEGORY_CONTENT_TAG, CATEGORY_REFERENCE_TAG, SKIP_TAG } from './constants/regex.js';
 import { getCategoriesForQuery, IQueryCategory, parseQueryCategories } from './sampling.js';
 import { throwError } from './util/error.js';
-import { trackSpan } from './util/perf.js';
 import { MemorySession } from './session.js';
 
 const NO_MEMORY_RESPONSE = 'No relevant memory found for the query. Go search the codebase and once you\'re done, ingest your findings into memory for next time.';
@@ -93,7 +92,7 @@ class CategoryQueryManager {
                 this.#resolve();
             }
         } catch (error) {
-            this.#session.logger.logError(`Error querying category (inner) ${category.categoryName}: ${error}`);
+            this.#session.logger.error(`Error querying category (inner) ${category.categoryName}: ${error}`);
             this.#reject(error);
             return;
         }
@@ -114,7 +113,7 @@ class CategoryQueryManager {
         }
 
         this.#queryCategory(category)
-            .catch(err => this.#session.logger.logError(`Error querying category (outer) ${category.categoryName}: ${err}`));
+            .catch(err => this.#session.logger.error(`Error querying category (outer) ${category.categoryName}: ${err}`));
     }
 
     async getResults() {
@@ -134,25 +133,25 @@ const queryMultipleCategories = async (session: MemorySession, categories: Array
 };
 
 export const queryMemory = async (session: MemorySession, query: string): Promise<string> => {
-    const summary = await trackSpan('queryMemory getSummary', () => session.getSummary());
+    const summary = await session.getSummary();
 
     if (!summary.trim()) {
         return NO_MEMORY_RESPONSE;
     }
 
-    const categories = await trackSpan('queryMemory getCategoriesForQuery', () => getCategoriesForQuery({
+    const categories = await getCategoriesForQuery({
+        session,
         query,
         summary,
-        config: session.config,
         isIngestion: false,
         existingOnly: true
-    }));
+    });
 
     if (categories.length === 0) {
         return NO_MEMORY_RESPONSE;
     }
 
-    const categoryResponses = await trackSpan('queryMemory getting category responses', () => queryMultipleCategories(session, categories, query));
+    const categoryResponses = await queryMultipleCategories(session, categories, query);
     const keys = Object.keys(categoryResponses);
 
     if (keys.length === 0) {
@@ -163,7 +162,7 @@ export const queryMemory = async (session: MemorySession, query: string): Promis
         return categoryResponses[keys[0]]!;
     }
 
-    return trackSpan('queryMemory summarize response', () => summarizeQueryResponse(session, query, categoryResponses));
+    return summarizeQueryResponse(session, query, categoryResponses);
 };
 
 interface IIngestCategoryUpdateOptions {
@@ -199,13 +198,13 @@ const ingestCategoryUpdate = async ({
     });
 
     if (SKIP_TAG.isMatch(response)) {
-        session.logger.logInfo(`AI has skipped updating category ${categoryName}`);
+        session.logger.info(`AI has skipped updating category ${categoryName}`);
         return undefined;
     }
 
     const newCategoryContent = CATEGORY_CONTENT_TAG.matchOne(response);
     if (!newCategoryContent) {
-        session.logger.logError(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
+        session.logger.error(`AI was missing CATEGORY_CONTENT_TAG when updating category ${categoryName}. Response was:\n${response}`);
         return undefined;
     }
 
@@ -216,29 +215,29 @@ const ingestCategoryUpdate = async ({
 };
 
 export const ingestMemory = async (session: MemorySession, information: string): Promise<void> => {
-    const summary = await trackSpan('ingestion getSummary', () => session.getSummary());
+    const summary = await session.getSummary();
 
-    const categories = await trackSpan('ingestion getCategoriesForQuery', () => getCategoriesForQuery({
+    const categories = await getCategoriesForQuery({
+        session,
         summary,
-        config: session.config,
         query: information,
         isIngestion: true
-    }));
+    });
 
     if (categories.length === 0) {
-        session.logger.logError('No categories found for ingestion, skipping.');
+        session.logger.error('No categories found for ingestion, skipping.');
         return;
     }
 
-    session.logger.logInfo(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
+    session.logger.info(`Ingesting information into ${categories.length} categories: ${categories.map(c => c.categoryName).join(', ')}`);
     await Promise.all(categories.map(({
                                           categoryName,
                                           reason
-                                      }) => trackSpan(`ingest category update "${categoryName}"`, () => ingestCategoryUpdate({
+                                      }) => ingestCategoryUpdate({
         session,
         categoryName,
         information,
         summary,
         reason
-    }))));
+    })));
 };

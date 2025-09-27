@@ -1,11 +1,11 @@
-import { getCategoriesFromQueryPrompt } from './constants/prompts.js';
 import { CATEGORY_NAME_TAG, CATEGORY_TAG, REASON_TAG, TagRegexManager } from './constants/regex.js';
 import { retrieveSampledMessage } from './util/mcp.js';
 import { isCategoryMissing } from './util/category.js';
 import { IMemoryConfig } from './models/session.js';
+import { MemorySession } from './session.js';
 
 interface IGetCategoriesForQueryOptions {
-    config: IMemoryConfig;
+    session: MemorySession;
     summary: string;
     query: string;
     isIngestion: boolean;
@@ -39,18 +39,19 @@ export const parseQueryCategories = (config: IMemoryConfig, tag: TagRegexManager
 };
 
 export const getCategoriesForQuery = async ({
-                                                config,
+                                                session,
                                                 summary,
                                                 query,
                                                 isIngestion,
                                                 existingOnly = false
                                             }: IGetCategoriesForQueryOptions): Promise<Array<IQueryCategory>> => {
-    const prompt = getCategoriesFromQueryPrompt(summary, query, isIngestion);
+    const prompt = await session.prompts.getCategoriesFromQueryPrompt(summary, query, isIngestion);
 
     const response = await retrieveSampledMessage({
+        mcpServer: session.config.server,
         messages: [prompt],
         maxTokens: 5000
     });
 
-    return parseQueryCategories(config, CATEGORY_TAG, response, existingOnly);
+    return parseQueryCategories(session.config, CATEGORY_TAG, response, existingOnly);
 };

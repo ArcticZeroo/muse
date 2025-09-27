@@ -24,7 +24,6 @@ interface IConstructMemorySessionOptions {
     config: IMemoryConfig;
     memoryEvents: TypedEventEmitter<MemoryEvents>;
     fileSystemEvents: TypedEventEmitter<FileSystemEvents>;
-    versionManager: VersionManager;
 }
 
 const createConfigAsync = async (server: McpServer, memoryDirectory: string, contextFilePath?: string): Promise<IMemoryConfig> => {
@@ -62,17 +61,18 @@ export class MemorySession {
     readonly #config: IMemoryConfig;
     readonly #memoryEvents: TypedEventEmitter<MemoryEvents>;
     readonly #fileSystemEvents: TypedEventEmitter<FileSystemEvents>;
-    readonly #versionManager: VersionManager;
     readonly #prompts: PromptManager;
     readonly #logger: McpLogger;
+    readonly #versionManager: VersionManager;
 
-    private constructor({ config, memoryEvents, fileSystemEvents, versionManager }: IConstructMemorySessionOptions) {
+    private constructor({ config, memoryEvents, fileSystemEvents }: IConstructMemorySessionOptions) {
         this.#config = config;
         this.#memoryEvents = memoryEvents;
         this.#fileSystemEvents = fileSystemEvents;
-        this.#versionManager = versionManager;
         this.#prompts = new PromptManager(config);
         this.#logger = new McpLogger(config.server);
+
+        this.#versionManager = VersionManager.createAsync()
     }
 
     static async createAsync({
@@ -85,16 +85,17 @@ export class MemorySession {
         const memoryEvents = new EventEmitter() as TypedEventEmitter<MemoryEvents>;
         const fileSystemEvents = new EventEmitter() as TypedEventEmitter<FileSystemEvents>;
 
-        const versionManager = await VersionManager.createAsync(config, fileSystemEvents, memoryEvents);
-
         await ensureGitignore(config);
 
-        return new MemorySession({
+        const session = new MemorySession({
             config,
             memoryEvents,
             fileSystemEvents,
-            versionManager
         });
+
+        await session.#initialize();
+
+        return session;
     }
 
     get logger(): McpLogger {
@@ -113,12 +114,12 @@ export class MemorySession {
         return this.#memoryEvents;
     }
 
-    get versionManager(): VersionManager {
-        return this.#versionManager;
-    }
-
     get prompts(): PromptManager {
         return this.#prompts;
+    }
+
+    async #initialize() {
+        await this.#versionManager.initialize();
     }
 
     async getSummary(): Promise<string> {
