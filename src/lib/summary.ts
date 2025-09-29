@@ -19,7 +19,7 @@ export const retrieveCategoryDescriptionAsync = async (session: MemorySession, c
 	const prompt = await session.prompts.getCategoryDescriptionPrompt(categoryName, content);
 
 	const response = await retrieveSampledMessage({
-        mcpServer: session.config.server,
+        session,
 		messages:  [prompt],
 		maxTokens: 2000
 	});

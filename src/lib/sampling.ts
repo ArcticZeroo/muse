@@ -48,7 +48,7 @@ export const getCategoriesForQuery = async ({
     const prompt = await session.prompts.getCategoriesFromQueryPrompt(summary, query, isIngestion);
 
     const response = await retrieveSampledMessage({
-        mcpServer: session.config.server,
+        session,
         messages: [prompt],
         maxTokens: 5000
     });
