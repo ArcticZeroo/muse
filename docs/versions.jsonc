@@ -1,0 +1,16 @@
+// This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
+// This file and summary.md will be automatically updated as you change/add/remove memory categories.
+{
+	"$USER": {
+		"contentHash": "",
+		"description": "This category contains information about the user and their specific preferences."
+	},
+	"feature/memory": {
+		"contentHash": "4e630814e952e4ddd4f003b58585e317984fc430643c988a2147bb23bcf685e5",
+		"description": "Describes the \"Memory Feature\" of Muse, a markdown-based persistent memory system for AI agents. This category covers installation, usage patterns, memory organization (including markdown file structure and category nesting), automatic ingestion, and the querying system using MCP sampling (noting Visual Studio Code support). It details core components (like MemorySession, VersionManager, PromptManager, and CategoryQueryManager), outlines the MCP Tools API for querying and ingesting memory, and summarizes the overall architecture. Use this category for information about how Muse manages, organizes, and interacts with persistent memory in codebases. Not appropriate for language-specific or user-specific details."
+	},
+	"vscode": {
+		"contentHash": "0e5a96c07e5ccd8724988da571e6be0a491903f8b9a2c0cc7630457467967ae3",
+		"description": "This category documents the integration of Muse MCP Sampling within Visual Studio Code (VSCode). It highlights that MCP sampling is exclusively supported in VSCode and notes known timeout issues, recommending a VSCode restart as a workaround. Use this category for information or troubleshooting related to MCP sampling in the VSCode environment."
+	}
+}

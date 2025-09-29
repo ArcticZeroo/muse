@@ -138,6 +138,14 @@ export class VersionManager {
             // Added, removed, changed all fall into the same bucket of "dirty"
             this.#session.fileSystemEvents.emit('categoryDirty', filename);
         });
+
+        watcher.on('error', (err) => {
+            this.#session.logger.error(`Watcher error: ${err}`);
+            watcher.close()
+                .then(() => this.#session.logger.info('Restarting watcher after error'))
+                .catch(err => this.#session.logger.error(`Failed to close watcher: ${err}`))
+                .finally(() => this.#startWatcher());
+        });
     }
 
     async #onCategoryDirty({ name, content }: ICategoryDirtyEvent) {
