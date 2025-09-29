@@ -135,6 +135,10 @@ export class MemorySession {
         this.#versionManager = new VersionManager(this);
 
         this.#memoryEvents.on('permissionDenied', () => {
+            if (this.#isClosed) {
+                return;
+            }
+
             this.logger.warn('Stopping memory due to permission denied event');
             this.#isClosed = true;
         });
