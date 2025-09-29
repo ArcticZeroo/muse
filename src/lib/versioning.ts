@@ -12,7 +12,7 @@ import { LockedResource } from './util/lock.js';
 import { MaybePromise } from './models/async.js';
 import path from 'node:path';
 import { buildCategoryTree, serializeCategoryTree } from './util/tree.js';
-import chokidar from 'chokidar';
+import chokidar, { FSWatcher } from 'chokidar';
 import { MemorySession } from './session.js';
 
 const VERSIONS_FILE_HEADER = `
@@ -75,6 +75,7 @@ export class VersionManager {
     readonly #useVersionCache = this.#getUseVersionCacheCallback();
     readonly #categoryDebouncer = new Debouncer(250 /*settlingTimeMs*/);
     readonly #fileSystemDirtyCategoryNames = new Set<string>();
+    #watcher: FSWatcher | undefined = undefined;
 
     constructor(session: MemorySession) {
         this.#session = session;
@@ -93,6 +94,11 @@ export class VersionManager {
             const lockRequestStartTime = performance.now();
 
             await cache.use(async (resource) => {
+                if (this.#session.isClosed) {
+                    this.#session.logger.warn('Session is closed, skipping version cache work');
+                    return;
+                }
+
                 const elapsedTime = performance.now() - lockRequestStartTime;
                 if (elapsedTime > 1000) {
                     this.#session.logger.warn(`Getting version cache lock took ${elapsedTime.toFixed(2)}ms`);
@@ -115,11 +121,17 @@ export class VersionManager {
     };
 
     #startWatcher() {
-        const watcher = chokidar.watch(this.#session.config.memoryDirectory, {
+        if (this.#watcher) {
+            this.#session.logger.warn('Watcher already exists, closing it before starting a new one');
+            this.#watcher.close()
+                .catch(err => this.#session.logger.error(`Failed to close existing watcher: ${err}`));
+        }
+
+        this.#watcher = chokidar.watch(this.#session.config.memoryDirectory, {
             persistent: false
         });
 
-        watcher.on('all', (_eventType, filename) => {
+        this.#watcher.on('all', (_eventType, filename) => {
             if (path.resolve(filename) === this.#session.config.summaryFilePath) {
                 // We probably don't care about changes to the summary file, they'll just get overwritten
                 // todo: maybe we should still try to prevent users from editing it directly?
@@ -139,12 +151,12 @@ export class VersionManager {
             this.#session.fileSystemEvents.emit('categoryDirty', filename);
         });
 
-        watcher.on('error', (err) => {
+        this.#watcher.on('error', (err) => {
             this.#session.logger.error(`Watcher error: ${err}`);
-            watcher.close()
-                .then(() => this.#session.logger.info('Restarting watcher after error'))
-                .catch(err => this.#session.logger.error(`Failed to close watcher: ${err}`))
-                .finally(() => this.#startWatcher());
+            this.#watcher?.close()
+                ?.then(() => this.#session.logger.info('Restarting watcher after error'))
+                ?.catch(err => this.#session.logger.error(`Failed to close watcher: ${err}`))
+                ?.finally(() => this.#startWatcher());
         });
     }
 
@@ -203,6 +215,10 @@ export class VersionManager {
     }
 
     async #updateDirtyCategoriesAsync(){
+        if (this.#session.isClosed) {
+            return;
+        }
+
         if (this.#fileSystemDirtyCategoryNames.size === 0) {
             return;
         }
@@ -267,12 +283,20 @@ export class VersionManager {
 
     #listenToEvents() {
         this.#session.fileSystemEvents.on('categoryDirty', (filename) => {
+            if (this.#session.isClosed) {
+                return;
+            }
+
             const categoryName = getCategoryNameFromFilePath(this.#session.config, filename);
             this.#fileSystemDirtyCategoryNames.add(categoryName);
             this.#categoryDebouncer.trigger(() => this.#updateDirtyCategories());
         });
 
         this.#session.fileSystemEvents.on('versionsDirty', () => {
+            if (this.#session.isClosed) {
+                return;
+            }
+
             // If we were about to update dirty categories, wait until we've updated versions from disk
             this.#categoryDebouncer.poke();
 
@@ -281,8 +305,17 @@ export class VersionManager {
         });
 
         this.#session.memoryEvents.on('categoryDirty', (event) => {
+            if (this.#session.isClosed) {
+                return;
+            }
+
             this.#onCategoryDirty(event)
                 .catch(err => this.#session.logger.error(`Failed to handle category dirty event for "${event.name}": ${err}`));
+        });
+
+        this.#session.memoryEvents.on('permissionDenied', () => {
+            this.#watcher?.close()
+                ?.catch(err => this.#session.logger.error(`Failed to close watcher on permission denied: ${err}`));
         });
     }
 }

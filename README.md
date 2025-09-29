@@ -50,10 +50,36 @@ IMPORTANT: Always query memory in muse before searching/writing code. Once you'r
 
 ## Alternative Installation: use as a library
 
-Muse can be used as a library instead.
+Muse can be used as a library instead. Check how it is used in `server/tools` as an example.
 
 ```typescript
+import { MemorySession } from '@arcticzeroo/muse/session';
+import { MCP_SERVER } from './mcp-server.js';
+import z from 'zod';
 
+const session = MemorySession.createAsync({
+    mcpServer: MCP_SERVER, // should be your MCP server instance from the MCP SDK
+    outputDirectory: '<memory directory>',
+    contextFile: '<context file>', // optional
+});
+
+MCP_SERVER.registerTool(
+    'query',
+    {
+        inputSchema: z.string()
+    },
+    async ({ query }) => {
+        const result = await session.queryMemory(query);
+        return [{
+            type: 'text',
+            text: result
+        }];
+    }
+);
+
+await MCP_SERVER.connect(transport);
+
+await session.initializeAfterMcpServerStarted();
 ```
 
 ## Usage

@@ -124,6 +124,7 @@ export class MemorySession {
     readonly #prompts: PromptManager;
     readonly #logger: McpLogger;
     readonly #versionManager: VersionManager;
+    #isClosed: boolean = false;
 
     private constructor({ config, memoryEvents, fileSystemEvents }: IConstructMemorySessionOptions) {
         this.#config = config;
@@ -132,6 +133,11 @@ export class MemorySession {
         this.#prompts = new PromptManager(config);
         this.#logger = new McpLogger(config.server);
         this.#versionManager = new VersionManager(this);
+
+        this.#memoryEvents.on('permissionDenied', () => {
+            this.logger.warn('Stopping memory due to permission denied event');
+            this.#isClosed = true;
+        });
     }
 
     static async createAsync({
@@ -151,6 +157,10 @@ export class MemorySession {
             memoryEvents,
             fileSystemEvents,
         });
+    }
+
+    get isClosed(): boolean {
+        return this.#isClosed;
     }
 
     get logger(): McpLogger {
@@ -190,7 +200,7 @@ export class MemorySession {
         const prompt = await this.prompts.getSummarizeInformationFromManyCategoriesPrompt(query, responses);
 
         const response = await retrieveSampledMessage({
-            mcpServer: this.config.server,
+            session: this,
             messages: [prompt],
             maxTokens: 50_000
         });
@@ -211,7 +221,7 @@ export class MemorySession {
         });
 
         const response = await retrieveSampledMessage({
-            mcpServer: this.config.server,
+            session: this,
             messages: [prompt],
             maxTokens: 50_000
         });
@@ -243,7 +253,7 @@ export class MemorySession {
         });
 
         const response = await retrieveSampledMessage({
-            mcpServer: this.config.server,
+            session: this,
             messages: [prompt],
             maxTokens: 5_000
         });

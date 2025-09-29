@@ -7,6 +7,7 @@ export interface ICategoryDirtyEvent {
 
 export type MemoryEvents = {
 	categoryDirty: (event: ICategoryDirtyEvent) => void;
+    permissionDenied: () => void;
 }
 
 export type FileSystemEvents = {
