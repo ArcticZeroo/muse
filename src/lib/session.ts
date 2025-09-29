@@ -146,15 +146,11 @@ export class MemorySession {
 
         await ensureGitignore(config);
 
-        const session = new MemorySession({
+        return new MemorySession({
             config,
             memoryEvents,
             fileSystemEvents,
         });
-
-        await session.#initialize();
-
-        return session;
     }
 
     get logger(): McpLogger {
@@ -177,7 +173,7 @@ export class MemorySession {
         return this.#prompts;
     }
 
-    async #initialize() {
+    async initializeAfterMcpServerStarted() {
         await this.#versionManager.initialize();
     }
 

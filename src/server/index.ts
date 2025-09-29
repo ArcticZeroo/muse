@@ -9,9 +9,6 @@ import { registerTools } from './tools.js';
 
 const args = await parseMuseArgs();
 
-const transport = new StdioServerTransport();
-await MCP_SERVER.connect(transport);
-
 const session = await MemorySession.createAsync({
     server: MCP_SERVER,
     memoryDirectory: args.outputDirectory,
@@ -19,3 +16,8 @@ const session = await MemorySession.createAsync({
 });
 
 registerTools(session);
+
+const transport = new StdioServerTransport();
+await MCP_SERVER.connect(transport);
+
+await session.initializeAfterMcpServerStarted();
