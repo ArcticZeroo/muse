@@ -1,6 +1,5 @@
 import { MCP_SERVER } from './mcp-server.js';
 import { z } from 'zod';
-import { ingestMemory, queryMemory } from '../lib/memory.js';
 import { createToolResults } from '../lib/util/mcp.js';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
@@ -11,7 +10,7 @@ import { MemorySession } from '../lib/session.js';
 
 export const registerTools = (session: MemorySession) => {
     MCP_SERVER.registerTool(
-        'query',
+        'queryMemory',
         {
             description: `Query memory. IMPORTANT: ALWAYS run this before searching the codebase since it will save you time.
         Memory is always being updated, so it may not necessarily contain what you need, but it may contain:
@@ -26,12 +25,12 @@ export const registerTools = (session: MemorySession) => {
             }
         },
         async ({ query }) => {
-            return createToolResults(await queryMemory(session, query));
+            return createToolResults(await session.queryMemory(query));
         }
     );
 
     MCP_SERVER.registerTool(
-        'ingest',
+        'ingestMemory',
         {
             description: `
 After learning something new, you can use this tool to add it to memory. This will make it available for future queries.
@@ -50,11 +49,11 @@ Examples of things you might want to add to memory include:
 You can add pretty much whatever you want. You should probably avoid adding very specific information about the current task, since memory is persistent and shared between developers.
 `.trim(),
             inputSchema: {
-                content: z.string().nonempty().describe('The content to ingest into memory. This should be a summary of what you learned, or the information you want to add to memory.')
+                content: z.string().nonempty().describe('The content to ingestMemory into memory. This should be a summary of what you learned, or the information you want to add to memory.')
             }
         },
         async ({ content }) => {
-            await ingestMemory(session, content);
+            await session.ingestMemory(content);
             return createToolResults('Ingested content into memory successfully.');
         }
     );
