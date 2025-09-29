@@ -9,7 +9,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "lib": ["ESNext"],
-    "types": ["node"]
+    "types": ["node"],
+    "declaration": true
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist", "build"]

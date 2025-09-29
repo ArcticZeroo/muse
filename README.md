@@ -48,6 +48,14 @@ Further, it is probably a good idea to add a line to your `copilot-instructions.
 IMPORTANT: Always query memory in muse before searching/writing code. Once you're done with your task, make sure to ingest into muse's memory with any new information you learned.
 ```
 
+## Alternative Installation: use as a library
+
+Muse can be used as a library instead.
+
+```typescript
+
+```
+
 ## Usage
 
 Once you have the MCP server running, you can use it in your AI agent however you like. You can do things like:
