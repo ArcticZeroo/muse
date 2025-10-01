@@ -1,6 +1,6 @@
 {
   "name": "@arcticzeroo/muse",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "description": "",
   "main": "dist/server/index.js",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.0",
+    "bottleneck": "^2.19.5",
     "chokidar": "^4.0.3",
     "jsonc": "^2.0.0",
     "yargs": "^18.0.0",

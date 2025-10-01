@@ -1,5 +1,6 @@
 import { MemorySession } from '../session.js';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
+import Bottleneck from 'bottleneck';
 
 export interface ISamplingMessageData {
     role: 'user' | 'assistant';
@@ -13,8 +14,7 @@ interface IRetrieveSampledMessageOptions {
     systemPrompt?: string;
 }
 
-// todo: consider ratelimiting?
-export const retrieveSampledMessage = async ({
+const retrieveSampledMessageInner = async ({
                                                  session,
                                                  messages,
                                                  systemPrompt,
@@ -65,3 +65,10 @@ export const retrieveSampledMessage = async ({
         throw err;
     }
 };
+
+const limiter = new Bottleneck({
+    maxConcurrent: 5, // Limit to 5 concurrent requests no matter how long they take
+    minTime: 500, // 500ms between requests
+});
+
+export const retrieveSampledMessage = limiter.wrap(retrieveSampledMessageInner);
