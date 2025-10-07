@@ -1,4 +1,4 @@
-import { CATEGORY_NAME_TAG, CATEGORY_TAG, REASON_TAG, TagRegexManager } from './constants/regex.js';
+import { CATEGORY_NAME_TAG, CATEGORY_TAG, WHAT_TO_INCLUDE_TAG, TagRegexManager } from './constants/regex.js';
 import { isCategoryMissing } from './util/category.js';
 import { IMemoryConfig } from './models/session.js';
 import { MemorySession } from './session.js';
@@ -22,7 +22,7 @@ export const parseQueryCategories = (config: IMemoryConfig, tag: TagRegexManager
 
     tag.forEach(response, (categoryContent) => {
         const categoryName = CATEGORY_NAME_TAG.matchOne(categoryContent);
-        const reason = REASON_TAG.matchOne(categoryContent);
+        const reason = WHAT_TO_INCLUDE_TAG.matchOne(categoryContent);
 
         if (!categoryName || !reason) {
             throw new Error(`AI generated an invalid category block: ${categoryContent}`);

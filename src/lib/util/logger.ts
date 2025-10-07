@@ -22,18 +22,18 @@ export class McpLogger {
     }
 
     info(message: string) {
-        this.#log(message, 'info');
+        return this.#log(message, 'info');
     }
 
     error(message: string) {
-        this.#log(message, 'error');
+        return this.#log(message, 'error');
     }
 
     debug(message: string) {
-        this.#log(message, 'debug');
+        return this.#log(message, 'debug');
     }
 
     warn(message: string) {
-        this.#log(message, 'warning');
+        return this.#log(message, 'warning');
     }
 }

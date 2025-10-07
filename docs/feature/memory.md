@@ -35,7 +35,7 @@ Muse provides a markdown-based memory system for AI agents. This feature allows 
 - **Sampling and Query System**:
   - Uses MCP sampling to query AI models for categorization and content analysis.
   - **getCategoriesForQuery**: AI determines relevant categories for a query based on the summary.
-  - **parseQueryCategories**: Parses AI response using regex tags (CATEGORY_TAG, CATEGORY_NAME_TAG, REASON_TAG).
+  - **parseQueryCategories**: Parses AI response using regex tags (CATEGORY_TAG, CATEGORY_NAME_TAG, WHAT_TO_INCLUDE_TAG).
   - Query process: AI receives the summary, determines categories, queries each category, and combines results.
   - Supports both ingestion (finding categories to update) and retrieval (finding categories to read).
 

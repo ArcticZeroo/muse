@@ -58,7 +58,7 @@ export class TagRegexManager {
 
 export const CATEGORY_TAG = new TagRegexManager('CATEGORY');
 export const CATEGORY_NAME_TAG = new TagRegexManager('CATEGORY_NAME');
-export const REASON_TAG = new TagRegexManager('REASON');
+export const WHAT_TO_INCLUDE_TAG = new TagRegexManager('WHAT_TO_INCLUDE');
 export const SKIP_TAG = new TagRegexManager('SKIP', true /*allowEmpty*/);
 export const CATEGORY_CONTENT_TAG = new TagRegexManager('CATEGORY_CONTENT');
 export const ANSWER_TAG = new TagRegexManager('ANSWER');

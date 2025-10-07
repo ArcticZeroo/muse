@@ -192,7 +192,7 @@ export class VersionManager {
                 versions.set(categoryName, entry);
             }
 
-            if (shouldLogLoad) {
+            if (shouldLogLoad && versions.size > 0) {
                 this.#session.logger.info(`Loaded ${versions.size} categories from disk\n${serializeCategoryTree(buildCategoryTree(Object.keys(versionsFromDisk)))}`);
             }
         });
