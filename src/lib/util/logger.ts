@@ -10,9 +10,8 @@ export class McpLogger {
         this.#mcpServer = server;
     }
 
-    #log(message: string, level: LogLevels, ifNotConnected: (message: string) => void) {
+    #log(message: string, level: LogLevels) {
         if (!this.#mcpServer.isConnected()) {
-            ifNotConnected(message);
             return;
         }
 
@@ -23,18 +22,18 @@ export class McpLogger {
     }
 
     info(message: string) {
-        this.#log(message, 'info', console.log);
+        this.#log(message, 'info');
     }
 
     error(message: string) {
-        this.#log(message, 'error', console.error);
+        this.#log(message, 'error');
     }
 
     debug(message: string) {
-        this.#log(message, 'debug', console.debug);
+        this.#log(message, 'debug');
     }
 
     warn(message: string) {
-        this.#log(message, 'warning', console.warn);
+        this.#log(message, 'warning');
     }
 }
