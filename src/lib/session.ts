@@ -98,7 +98,6 @@ class CategoryQueryManager {
 }
 
 interface IIngestCategoryUpdateOptions {
-    summary: string;
     categoryName: string;
     reason: string;
     information: string;
@@ -212,12 +211,11 @@ export class MemorySession {
         return ANSWER_TAG.matchOne(response) ?? throwError('Failed to parse answer from the response');
     }
 
-    async #ingestCategoryUpdate({ categoryName, information, reason, summary }: IIngestCategoryUpdateOptions) {
+    async #ingestCategoryUpdate({ categoryName, information, reason }: IIngestCategoryUpdateOptions) {
         const filePath = getCategoryFilePath(this.config, categoryName);
         const previousCategoryContent = await fs.readFile(filePath, 'utf-8').catch(() => '');
 
         const prompt = await this.prompts.getUpdateInSingleCategoryPrompt({
-            summary,
             categoryName,
             previousCategoryContent,
             information,
@@ -271,8 +269,8 @@ export class MemorySession {
         const summary = await this.getSummary();
 
         const categories = await getCategoriesForQuery({
-            session: this,
             summary,
+            session: this,
             query: information,
             isIngestion: true
         });
@@ -289,7 +287,6 @@ export class MemorySession {
                                           }) => this.#ingestCategoryUpdate({
             categoryName,
             information,
-            summary,
             reason
         })));
     }

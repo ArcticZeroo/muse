@@ -21,7 +21,6 @@ interface IGetInformationFromSingleCategoryPromptOptions {
 interface IGetUpdateInSingleCategoryPromptOptions {
     categoryName: string;
     previousCategoryContent?: string;
-    summary: string;
     information: string;
     reason: string;
 }
@@ -103,7 +102,9 @@ Here is a summary of the existing categories and what they're for:
 ${describeSummary(summary)}
 </SUMMARY>
 
-${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a <CATEGORY_NAME></CATEGORY_NAME> tag, and a <REASON></REASON> tag explaining why you chose that category. 
+${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a <CATEGORY_NAME></CATEGORY_NAME> tag, and a <WHAT_TO_INCLUDE></WHAT_TO_INCLUDE> tag explaining which ${isIngestion ? 'which topics in <INFORMATION/> should be added to this category' : 'which topics in <INFORMATION/> are expected to be relevant to the query'}.
+${ifTruthy(isIngestion, 'When there are categories on similar/related topics, <WHAT_TO_INCLUDE/> should also contain what NOT to include so that we avoid duplicate information. For instance, don\'t put implementation details for a feature in category "language/cpp" whose description is "Code style guidelines for C++" just because the feature is implemented in C++')}
+${ifTruthy(isIngestion, '<WHAT_TO_INCLUDE/> may also mention specific related categories that could be worth mentioning in the category. It could be helpful to explain briefly why these categories are relevant so that they make more sense to the user, and can help avoid duplicating information across categories.')}
 The reason will be used in the next step to determine what information to retrieve/store in that category, so be as specific as possible. For example, if the information is about a specific function or class, mention that in the reason. If the information is about a specific feature, mention that in the reason. If the information is about a specific programming language, mention that in the reason.
 ${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group with existing categories where it makes sense. New categories must match /[\\w-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
 `.trim();
@@ -127,12 +128,10 @@ ${query}
 ${content}
 </ARCHIVE_CONTENT>
 
-This category has been selected with the following reason:
-<REASON>
+This category has been selected with a guideline for what parts of <ARCHIVE_CONTENT/> are expected to be relevant to the query. Use this to help you determine what information, if any, is relevant to the query.
+<WHAT_TO_INCLUDE>
 ${reason}
-</REASON>
-
-Use this reason to help you determine what information, if any, is relevant to the query.
+</WHAT_TO_INCLUDE>
 
 You will return an <ANSWER> tag containing the answer to the question, e.g. <ANSWER>answer in here</ANSWER>. It is ok if you only have a partial answer to the question - we will look at other categories too.
 If this category doesn't answer anything, return a <SKIP> tag instead of an <ANSWER> tag, e.g. <SKIP>information not found</SKIP>.
@@ -170,7 +169,6 @@ You should return an <ANSWER> tag containing the final answer to the question, e
     async getUpdateInSingleCategoryPrompt({
                                               categoryName,
                                               previousCategoryContent,
-                                              summary,
                                               information,
                                               reason
                                           }: IGetUpdateInSingleCategoryPromptOptions) {
@@ -180,51 +178,22 @@ Your current task is to update a single category with new information. You have 
 
 This category is called "${categoryName}". 
 
-${ifTruthy(summary, `
-Here is the summary of all categories in memory:
-<SUMMARY>
-${summary}
-</SUMMARY>
-
-Use this summary to help decide whether the information is relevant to this category or not. We want to avoid cluttering categories with information that is not relevant to them - categories should stay somewhat focused, and we don't want duplicate information across categories.
-`)}
-
 Here is the information that you are given to update the category with:
 <INFORMATION>
 ${information}
 </INFORMATION>
 
-This category was chosen for the following reason. Use this reason to help you determine what parts of the information, if any, are relevant to the category:
-<REASON>
+This category was chosen along with a guideline for why it was chosen/what parts of <INFORMATION/> to include in this category. Only include the parts of the information that are relevant to this category, and that match the reason given below.
+<WHAT_TO_INCLUDE>
 ${reason}
-</REASON>
+</WHAT_TO_INCLUDE>
 
 ${previousCategoryContent ? `Here is the previous version of this category's content: <PREVIOUS_CATEGORY_CONTENT>${previousCategoryContent}</PREVIOUS_CATEGORY_CONTENT>` : 'This is a new category with no existing content. You are creating the entire thing from scratch.'}
 
-If the information is not relevant to this category, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
+If the information is not relevant to this category based on <WHAT_TO_INCLUDE/>, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
 Otherwise, return a <CATEGORY_CONTENT> tag containing the new category content, e.g. <CATEGORY_CONTENT>new category content in here</CATEGORY_CONTENT>, and a <DIFF_SUMMARY> tag containing a summary of the changes made, e.g. <DIFF_SUMMARY>summary of changes in here</DIFF_SUMMARY>
-`.trim();
-    }
 
-    async getUpdateSummaryPrompt(previousSummary: string, information: Record<string /*categoryName*/, string /*changeInfo*/>) {
-        return `
-${await this.#getSystemPrompt()}
-Your task is to update the summary based on new information. Some category/categories have updated, and their new descriptions will be given. You can merge descriptions or replace entirely as you choose.
-${SUMMARY_DESCRIPTION_EXPLANATION}
-Return an UPDATED_SUMMARY element with file contents inside, e.g. <UPDATED_SUMMARY>updated file contents in here</UPDATED_SUMMARY>
-The summary should be in Markdown format, with each category in its own h3/### section whose title is the full category name.
-
-<PREVIOUS_SUMMARY>
-${describeSummary(previousSummary)}
-</PREVIOUS_SUMMARY>
-
-<CATEGORY_UPDATES>
-${Object.entries(information).map(([categoryName, changeInfo]) => `
-<CATEGORY_UPDATE category="${categoryName}">
-${changeInfo}
-</CATEGORY_UPDATE>
-`)}
-</CATEGORY_UPDATES>
+The category content should be formatted as markdown. It can be helpful to have a description of what the category is about at the top, and you may refer to other category names in the content if <WHAT_TO_INCLUDE/> thinks they are relevant.
 `.trim();
     }
 }
