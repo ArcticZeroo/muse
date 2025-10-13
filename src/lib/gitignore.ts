@@ -12,7 +12,7 @@ export const ensureGitignore = async (config: IMemoryConfig) => {
     const gitignorePath = path.join(config.memoryDirectory, '.gitignore');
 
     if (!fsSync.existsSync(gitignorePath)) {
-        await fs.writeFile(gitignorePath, requiredGitignoreLines.join('\n'), 'utf-8');
+        await fs.writeFile(gitignorePath, requiredGitignoreLines.join('\r\n'), 'utf-8');
         return;
     }
 
@@ -30,5 +30,5 @@ export const ensureGitignore = async (config: IMemoryConfig) => {
         await handle.close();
     }
 
-	await fs.appendFile(gitignorePath, `\n${Array.from(remainingLines).join('\n')}\n`);
+	await fs.appendFile(gitignorePath, `\n${Array.from(remainingLines).join('\r\n')}\r\n`);
 }

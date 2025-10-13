@@ -1,4 +1,3 @@
-import { jsonc } from 'jsonc';
 import crypto from 'node:crypto';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
@@ -205,9 +204,10 @@ export class VersionManager {
         }
 
         const fileContents = await fs.readFile(this.#session.config.versionsFilePath, 'utf-8');
+        const contentsWithoutComments = fileContents.replace(/^\s*\/\/.*$/gm, '').trim();
         try {
-            const result = jsonc.parse(fileContents);
-            return  VERSION_FILE_SCHEMA.parse(result);
+            const result = JSON.parse(contentsWithoutComments);
+            return VERSION_FILE_SCHEMA.parse(result);
         } catch (err) {
             this.#session.logger.error(`Failed to parse versions file, returning empty object: ${err}`);
             return {};

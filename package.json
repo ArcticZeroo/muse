@@ -16,7 +16,6 @@
     "@modelcontextprotocol/sdk": "^1.18.0",
     "bottleneck": "^2.19.5",
     "chokidar": "^4.0.3",
-    "jsonc": "^2.0.0",
     "yargs": "^18.0.0",
     "zod": "^3.25.76"
   },

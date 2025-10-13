@@ -12,7 +12,7 @@ export const serializeSummaryFromVersions = (versions: Map<string /*categoryName
 			`### ${key}`,
 			`${description}`
 		];
-	}).join('\n\n');
+	}).join('\r\n\r\n');
 }
 
 export const retrieveCategoryDescriptionAsync = async (session: MemorySession, categoryName: string, content: string): Promise<string> => {
