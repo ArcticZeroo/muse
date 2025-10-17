@@ -66,3 +66,4 @@ export const DESCRIPTION_TAG = new TagRegexManager('DESCRIPTION');
 export const CATEGORY_REFERENCE_TAG = new TagRegexManager('CATEGORY_REFERENCE');
 
 export const CATEGORY_NAME_REGEX = /^([\w-]+\/)*[\w-]+$/;
+export const MERGE_CONFLICT_MARKER_REGEX = /^(<<<<<<< HEAD|=======|>>>>>>> .*)$/gm;

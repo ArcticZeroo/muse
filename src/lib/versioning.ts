@@ -13,6 +13,7 @@ import path from 'node:path';
 import { buildCategoryTree, serializeCategoryTree } from './util/tree.js';
 import chokidar, { FSWatcher } from 'chokidar';
 import { MemorySession } from './session.js';
+import { MERGE_CONFLICT_MARKER_REGEX } from './constants/regex.js';
 
 const VERSIONS_FILE_HEADER = `
 // This file is used to generate summary.md. You can edit the descriptions in here if you would like to update summary.md. 
@@ -181,6 +182,12 @@ export class VersionManager {
     async #updateVersionsFromDiskAsync(shouldLogLoad: boolean = false) {
         await this.#useVersionCache(async (versions) => {
             const versionsFromDisk = await this.#getVersionsFromDisk();
+
+            if (versionsFromDisk === 'has-merge-conflict-marker') {
+                this.#session.logger.warn('Skipping versions load due to merge conflict marker in versions file');
+                return;
+            }
+
             versions.clear();
             for (const [categoryName, entry] of Object.entries(versionsFromDisk)) {
                 if (isCategoryMissing(this.#session.config, categoryName)) {
@@ -197,14 +204,20 @@ export class VersionManager {
         });
     }
 
-    async #getVersionsFromDisk(): Promise<VersionRecord> {
+    async #getVersionsFromDisk(): Promise<VersionRecord | 'has-merge-conflict-marker'> {
         if (!fsSync.existsSync(this.#session.config.versionsFilePath)) {
             this.#session.logger.info('Versions file does not exist yet');
             return {};
         }
 
         const fileContents = await fs.readFile(this.#session.config.versionsFilePath, 'utf-8');
+
+        if (MERGE_CONFLICT_MARKER_REGEX.test(fileContents)) {
+            return 'has-merge-conflict-marker';
+        }
+
         const contentsWithoutComments = fileContents.replace(/^\s*\/\/.*$/gm, '').trim();
+
         try {
             const result = JSON.parse(contentsWithoutComments);
             return VERSION_FILE_SCHEMA.parse(result);
