@@ -102,11 +102,15 @@ Here is a summary of the existing categories and what they're for:
 ${describeSummary(summary)}
 </SUMMARY>
 
-${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a <CATEGORY_NAME></CATEGORY_NAME> tag, and a <WHAT_TO_INCLUDE></WHAT_TO_INCLUDE> tag explaining which ${isIngestion ? 'which topics in <INFORMATION/> should be added to this category' : 'which topics in <INFORMATION/> are expected to be relevant to the query'}.
+${isIngestion ? 'You will provide 1 or more' : 'It is possible that no categories match the information. If any categories do match, provide them as'} <CATEGORY> tags, each containing a <CATEGORY_NAME></CATEGORY_NAME> tag, and a <WHAT_TO_INCLUDE></WHAT_TO_INCLUDE> tag explaining which ${isIngestion ? 'which topics in <INFORMATION/> should be added to this category' : 'which topics in <INFORMATION/> are expected to be relevant to the query'}. 
+The original <INFORMATION/> will be sent along with <WHAT_TO_INCLUDE/> so you don't need to paste the actual information, just explain why you think it is relevant.
+For example, if <INFORMATION/> is about making HTTP requests, you might pull out a category "feature/async" whose summary is "Explains how to use async patterns" with <WHAT_TO_INCLUDE>HTTP requests are often made asynchronously, so this category should contain information about how to make HTTP requests in an async way</WHAT_TO_INCLUDE>.
 ${ifTruthy(isIngestion, 'When there are categories on similar/related topics, <WHAT_TO_INCLUDE/> should also contain what NOT to include so that we avoid duplicate information. For instance, don\'t put implementation details for a feature in category "language/cpp" whose description is "Code style guidelines for C++" just because the feature is implemented in C++')}
 ${ifTruthy(isIngestion, '<WHAT_TO_INCLUDE/> may also mention specific related categories that could be worth mentioning in the category. It could be helpful to explain briefly why these categories are relevant so that they make more sense to the user, and can help avoid duplicating information across categories.')}
-The reason will be used in the next step to determine what information to retrieve/store in that category, so be as specific as possible. For example, if the information is about a specific function or class, mention that in the reason. If the information is about a specific feature, mention that in the reason. If the information is about a specific programming language, mention that in the reason.
+The <WHAT_TO_INCLUDE/> will be used in the next step to determine what information to retrieve/store in that category, so be as specific as possible. For example, if the information is about a specific function or class, mention that in the reason. If the information is about a specific feature, mention that in the reason. If the information is about a specific programming language, mention that in the reason.
+
 ${isIngestion ? 'You can create new categories if necessary to encompass the information, but try to group with existing categories where it makes sense. New categories must match /[\\w-]+/ since they are used as file names.' : 'You may only specify categories that already exist.'}
+${ifTruthy(isIngestion, 'Your goal is to have all information in <INFORMATION/> stored in the archive without much duplication, so your <WHAT_TO_INCLUDE/>s should be specific and be written to avoid overlap about which parts of <INFORMATION/> should be stored across the archive.')}
 `.trim();
     }
 
@@ -124,17 +128,21 @@ Your current task is to answer a question/find some information based on the inf
 ${query}
 </QUERY>
 
-<ARCHIVE_CONTENT categoryName="${categoryName}">
+<ARCHIVE_CATEGORY_NAME>
+${categoryName}
+</ARCHIVE_CATEGORY_NAME>
+
+<ARCHIVE_CONTENT>
 ${content}
 </ARCHIVE_CONTENT>
 
-This category has been selected with a guideline for what parts of <ARCHIVE_CONTENT/> are expected to be relevant to the query. Use this to help you determine what information, if any, is relevant to the query.
 <WHAT_TO_INCLUDE>
 ${reason}
 </WHAT_TO_INCLUDE>
 
+Use <WHAT_TO_INCLUDE/> to determine which parts of <ARCHIVE_CONTENT/> are relevant to the query. ONLY include information that is relevant to the query and matches the reason given in <WHAT_TO_INCLUDE/>.
 You will return an <ANSWER> tag containing the answer to the question, e.g. <ANSWER>answer in here</ANSWER>. It is ok if you only have a partial answer to the question - we will look at other categories too.
-If this category doesn't answer anything, return a <SKIP> tag instead of an <ANSWER> tag, e.g. <SKIP>information not found</SKIP>.
+DO NOT infer anything, only use information straight from <ARCHIVE_CONTENT>. If this category doesn't answer anything, return a <SKIP> tag instead of an <ANSWER> tag, e.g. <SKIP>information not found</SKIP>.
 
 If this archive directly references other category names that you think would help answer the question, you may optionally also return any number of <CATEGORY_REFERENCE> tags containing the category name in <CATEGORY_NAME> and the reason why you think it is relevant in <WHAT_TO_INCLUDE>.
 For example, <CATEGORY_REFERENCE><CATEGORY_NAME>name</CATEGORY_NAME><WHAT_TO_INCLUDE>Category my_cool_feature references this category for more information about some_other_feature</WHAT_TO_INCLUDE></CATEGORY_REFERENCE>. These should be outside the <ANSWER> tag. 
@@ -190,8 +198,10 @@ ${reason}
 
 ${previousCategoryContent ? `Here is the previous version of this category's content: <PREVIOUS_CATEGORY_CONTENT>${previousCategoryContent}</PREVIOUS_CATEGORY_CONTENT>` : 'This is a new category with no existing content. You are creating the entire thing from scratch.'}
 
-If the information is not relevant to this category based on <WHAT_TO_INCLUDE/>, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
+If all the information is not relevant to this category based on <WHAT_TO_INCLUDE/>, return a <SKIP> tag so that we don't update the category, e.g. <SKIP>not relevant</SKIP>.
 Otherwise, return a <CATEGORY_CONTENT> tag containing the new category content, e.g. <CATEGORY_CONTENT>new category content in here</CATEGORY_CONTENT>, and a <DIFF_SUMMARY> tag containing a summary of the changes made, e.g. <DIFF_SUMMARY>summary of changes in here</DIFF_SUMMARY>
+When updating <CATEGORY_CONTENT/>, ONLY include information that is relevant to the category. The assistant didn't look at this category, only a high-level summary, so the <INFORMATION/> and <WHAT_TO_INCLUDE/> might end up being entirely irrelevant to this category.
+Avoid removing information that is already present unless <WHAT_TO_INCLUDE/> specifically says to remove it. Also avoid including information that entirely changes the meaning of the category, e.g. if the category is about best practices for C++, don't include information about a specific feature in the codebase just because it is also written in C++. You would instead return a <SKIP> tag in that case.
 
 The category content should be formatted as markdown. It can be helpful to have a description of what the category is about at the top, and you may refer to other category names in the content if <WHAT_TO_INCLUDE/> thinks they are relevant.
 `.trim();
